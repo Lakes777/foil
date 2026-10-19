@@ -12,8 +12,12 @@ public final class EstoqueComandos {
 
 	}
 
-	/** Compensação: devolve a unidade do pedido do envelope (repetir não devolve duas vezes). */
-	public record DevolverUnidade() {
+	/**
+	 * Compensação: devolve a unidade do pedido do envelope (repetir não devolve duas vezes). Se ainda não houver
+	 * reserva, o estoque grava a devolução assim mesmo: um ReservarUnidade que chegue depois (reprocessado da fila
+	 * de mortos) é recusado, em vez de prender uma unidade que nenhuma saga vai devolver.
+	 */
+	public record DevolverUnidade(long edicaoId) {
 
 		public static final String TIPO = "DevolverUnidade";
 

@@ -103,7 +103,7 @@ class ReservaTest {
 		var pedido = UUID.randomUUID();
 
 		assertThat(estoque.reservar(pedido, -1)).isEqualTo(ResultadoDaReserva.EDICAO_INEXISTENTE);
-		assertThat(estoque.devolver(pedido)).isEqualTo(ResultadoDaDevolucao.SEM_RESERVA);
+		assertThat(estoque.devolver(pedido, -1)).isEqualTo(ResultadoDaDevolucao.SEM_RESERVA);
 	}
 
 	@Test
@@ -114,8 +114,8 @@ class ReservaTest {
 		assertThat(estoque.reservar(primeiro, edicao.id())).isEqualTo(ResultadoDaReserva.RESERVADA);
 		assertThat(estoque.reservar(segundo, edicao.id())).isEqualTo(ResultadoDaReserva.SEM_ESTOQUE);
 
-		assertThat(estoque.devolver(segundo)).isEqualTo(ResultadoDaDevolucao.SEM_RESERVA);
-		assertThat(estoque.devolver(primeiro)).isEqualTo(ResultadoDaDevolucao.DEVOLVIDA);
+		assertThat(estoque.devolver(segundo, edicao.id())).isEqualTo(ResultadoDaDevolucao.SEM_RESERVA);
+		assertThat(estoque.devolver(primeiro, edicao.id())).isEqualTo(ResultadoDaDevolucao.DEVOLVIDA);
 
 		// A saga do segundo já acabou em SEM_ESTOQUE: se ele levasse a unidade agora, ninguém a devolveria
 		assertThat(estoque.reservar(segundo, edicao.id())).isEqualTo(ResultadoDaReserva.SEM_ESTOQUE);
@@ -148,8 +148,8 @@ class ReservaTest {
 		var pedido = UUID.randomUUID();
 		estoque.reservar(pedido, edicao.id());
 
-		assertThat(estoque.devolver(pedido)).isEqualTo(ResultadoDaDevolucao.DEVOLVIDA);
-		assertThat(estoque.devolver(pedido)).isEqualTo(ResultadoDaDevolucao.JA_DEVOLVIDA);
+		assertThat(estoque.devolver(pedido, edicao.id())).isEqualTo(ResultadoDaDevolucao.DEVOLVIDA);
+		assertThat(estoque.devolver(pedido, edicao.id())).isEqualTo(ResultadoDaDevolucao.JA_DEVOLVIDA);
 		assertThat(disponivel(edicao)).isEqualTo(3);
 		// Pedido devolvido não reserva de novo (a saga dele acabou)
 		assertThat(estoque.reservar(pedido, edicao.id())).isEqualTo(ResultadoDaReserva.JA_DEVOLVIDA);
@@ -164,7 +164,7 @@ class ReservaTest {
 		estoque.reservar(UUID.randomUUID(), edicao.id());
 		var tarefas = new ArrayList<Callable<ResultadoDaDevolucao>>();
 		for (int i = 0; i < 50; i++) {
-			tarefas.add(() -> estoque.devolver(pedido));
+			tarefas.add(() -> estoque.devolver(pedido, edicao.id()));
 		}
 
 		var resultados = todasJuntas(ResultadoDaDevolucao.class, tarefas);
@@ -172,6 +172,20 @@ class ReservaTest {
 		assertThat(resultados).containsOnly(Map.entry(ResultadoDaDevolucao.DEVOLVIDA, 1),
 				Map.entry(ResultadoDaDevolucao.JA_DEVOLVIDA, 49));
 		assertThat(disponivel(edicao)).isEqualTo(1);
+	}
+
+	@Test
+	void devolverAntesDeReservarTravaAReservaAtrasada() {
+		var edicao = edicaoNova(3);
+		var pedido = UUID.randomUUID();
+
+		// A devolução chega primeiro (a reserva estava na fila de mortos e foi reprocessada depois)
+		assertThat(estoque.devolver(pedido, edicao.id())).isEqualTo(ResultadoDaDevolucao.SEM_RESERVA);
+
+		assertThat(estoque.reservar(pedido, edicao.id())).isEqualTo(ResultadoDaReserva.JA_DEVOLVIDA);
+		assertThat(disponivel(edicao)).isEqualTo(3);
+		assertThat(estoque.devolver(pedido, edicao.id())).isEqualTo(ResultadoDaDevolucao.JA_DEVOLVIDA);
+		assertThat(disponivel(edicao)).isEqualTo(3);
 	}
 
 	@Test

@@ -3,8 +3,11 @@ package io.github.lakes777.foil.contratos;
 /** Respostas do estoque, no tópico {@link Topicos#ESTOQUE_EVENTOS}. */
 public final class EstoqueEventos {
 
-	/** A unidade está reservada para o pedido (também na repetição de um pedido já reservado). */
-	public record UnidadeReservada(long edicaoId) {
+	/**
+	 * A unidade está reservada para o pedido (também na repetição de um pedido já reservado). O preço vem do
+	 * estoque, que é quem manda nele.
+	 */
+	public record UnidadeReservada(long edicaoId, int precoCentavos) {
 
 		public static final String TIPO = "UnidadeReservada";
 

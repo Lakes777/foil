@@ -14,6 +14,9 @@ public final class Topicos {
 	public static final List<String> TODOS = List.of(ESTOQUE_COMANDOS, ESTOQUE_EVENTOS, PAGAMENTOS_COMANDOS,
 			PAGAMENTOS_EVENTOS, PEDIDOS_EVENTOS);
 
+	/** Sufixo da fila de mortos de cada tópico (P25): {@code estoque.comandos.mortos} etc. */
+	public static final String MORTOS = ".mortos";
+
 	/** Partições por tópico; a chave é o id do pedido (P24). */
 	public static final int PARTICOES = 3;
 

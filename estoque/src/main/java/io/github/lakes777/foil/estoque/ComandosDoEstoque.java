@@ -59,10 +59,7 @@ class ComandosDoEstoque {
 		}
 		switch (comando.tipo()) {
 			case ReservarUnidade.TIPO -> reservar(comando, dados(comando, ReservarUnidade.class, ReservarUnidade.VERSAO));
-			case DevolverUnidade.TIPO -> {
-				dados(comando, DevolverUnidade.class, DevolverUnidade.VERSAO);
-				devolver(comando);
-			}
+			case DevolverUnidade.TIPO -> devolver(comando, dados(comando, DevolverUnidade.class, DevolverUnidade.VERSAO));
 			// A fila de mortos (fase 4) recebe o que cair aqui
 			default -> throw new IllegalArgumentException("comando desconhecido: " + comando.tipo());
 		}
@@ -74,15 +71,15 @@ class ComandosDoEstoque {
 		var edicao = estoque.edicaoDaReserva(comando.pedidoId()).orElse(dados.edicaoId());
 		switch (resultado) {
 			case RESERVADA, JA_RESERVADA -> responder(comando, UnidadeReservada.TIPO, UnidadeReservada.VERSAO,
-					new UnidadeReservada(edicao));
+					new UnidadeReservada(edicao, estoque.buscarEdicao(edicao).orElseThrow().precoCentavos()));
 			case SEM_ESTOQUE -> recusar(comando, edicao, ReservaRecusada.Motivo.SEM_ESTOQUE);
 			case EDICAO_INEXISTENTE -> recusar(comando, edicao, ReservaRecusada.Motivo.EDICAO_INEXISTENTE);
 			case JA_DEVOLVIDA -> recusar(comando, edicao, ReservaRecusada.Motivo.JA_DEVOLVIDA);
 		}
 	}
 
-	private void devolver(Envelope comando) {
-		var agora = estoque.devolver(comando.pedidoId()) == ResultadoDaDevolucao.DEVOLVIDA;
+	private void devolver(Envelope comando, DevolverUnidade dados) {
+		var agora = estoque.devolver(comando.pedidoId(), dados.edicaoId()) == ResultadoDaDevolucao.DEVOLVIDA;
 		responder(comando, UnidadeDevolvida.TIPO, UnidadeDevolvida.VERSAO, new UnidadeDevolvida(agora));
 	}
 

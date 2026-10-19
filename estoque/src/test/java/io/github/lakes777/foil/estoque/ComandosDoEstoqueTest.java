@@ -69,9 +69,9 @@ class ComandosDoEstoqueTest {
 				json.valueToTree(new ReservarUnidade(edicao)), Clock.systemUTC());
 	}
 
-	private Envelope devolver(UUID pedido) {
+	private Envelope devolver(UUID pedido, long edicao) {
 		return Envelope.novo(DevolverUnidade.TIPO, DevolverUnidade.VERSAO, pedido,
-				json.valueToTree(new DevolverUnidade()), Clock.systemUTC());
+				json.valueToTree(new DevolverUnidade(edicao)), Clock.systemUTC());
 	}
 
 	private void enviar(Envelope comando) throws Exception {
@@ -99,7 +99,7 @@ class ComandosDoEstoqueTest {
 		var resposta = respostas(pedido, 1);
 		assertThat(resposta).extracting(Envelope::tipo).containsExactly(UnidadeReservada.TIPO);
 		assertThat(json.treeToValue(resposta.getFirst().dados(), UnidadeReservada.class))
-			.isEqualTo(new UnidadeReservada(edicao.id()));
+			.isEqualTo(new UnidadeReservada(edicao.id(), EstoqueService.PRECO_PADRAO));
 		assertThat(disponivel(edicao)).isEqualTo(2);
 	}
 
@@ -112,7 +112,7 @@ class ComandosDoEstoqueTest {
 		enviar(comando);
 		enviar(comando);
 		// Mesma chave = mesma partição = processado depois dos dois: quando a resposta dele chegar, o repetido já passou
-		enviar(devolver(pedido));
+		enviar(devolver(pedido, edicao.id()));
 
 		var lidas = respostas(pedido, 2);
 		assertThat(lidas).extracting(Envelope::tipo).containsExactly(UnidadeReservada.TIPO, UnidadeDevolvida.TIPO);
@@ -175,7 +175,7 @@ class ComandosDoEstoqueTest {
 		var pedido = UUID.randomUUID();
 
 		enviar(reservar(pedido, edicao.id()));
-		enviar(devolver(pedido));
+		enviar(devolver(pedido, edicao.id()));
 		// Comando novo (outro id) para o mesmo pedido, depois da devolução
 		enviar(reservar(pedido, edicao.id()));
 

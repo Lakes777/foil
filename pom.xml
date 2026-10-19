@@ -21,6 +21,7 @@
 		<module>pedidos</module>
 		<module>estoque</module>
 		<module>pagamentos</module>
+		<module>ponta-a-ponta</module>
 	</modules>
 
 	<properties>

@@ -15,7 +15,7 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 | 1. Esqueleto | Maven multi-módulo, 3 serviços com `/saude`, Flyway, contratos, Testcontainers, CI | feita |
 | 2. Estoque | Cartas, edições, reserva atômica, devolução | feita |
 | 3. Eventos | Outbox, envelope, consumidores idempotentes, partição por pedido | feita |
-| 4. Saga | Máquina de estados, compensações, prazo de 5 min, fila de mortos | |
+| 4. Saga | Máquina de estados, compensações, prazo de 5 min, fila de mortos | feita |
 | 5. Pagamento | Integração com o Fiel (cobrança, webhook) | |
 | 6. Lançamento | 200 robôs contra 10 unidades, ao vivo | |
 | 7. Interface | Loja e painel de eventos | |
@@ -28,9 +28,10 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 |---|---|
 | `contratos` | Envelope dos eventos (`id`, `tipo`, `versao`, `ocorridoEm`, `pedidoId`, `dados`), tópicos e os comandos/eventos de cada serviço |
 | `comum` | Base dos três serviços: `GET /saude` (200 só com banco e Redpanda respondendo; 503 dizendo qual caiu), outbox, consumidor idempotente, tópicos e, nos testes, os contêineres |
-| `pedidos` | Orquestrador da saga (porta 8091) |
+| `pedidos` | Orquestrador da saga: `POST /pedidos`, `GET /pedidos/{id}` (porta 8091) |
 | `estoque` | Cartas, edições, reserva e devolução; `GET /cartas`, `/cartas/{id}/edicoes`, `/edicoes/{id}` (porta 8092) |
-| `pagamentos` | Cobranças pelo Fiel ou simuladas (porta 8093) |
+| `pagamentos` | Cobranças simuladas (o Fiel entra na fase 5), cancelamento e estorno (porta 8093) |
+| `ponta-a-ponta` | Teste com os três serviços como processos de verdade, derrubando um deles |
 
 Cada serviço tem o próprio banco (`foil_pedidos`, `foil_estoque`, `foil_pagamentos`) e as próprias migrações Flyway.
 
@@ -76,17 +77,51 @@ nenhum erro e `disponivel = 0`. As contraprovas (o código trocado de propósito
 | Banco do consumidor fora | A mensagem é tentada de novo para sempre, com espera crescente (até 30 s); a partição espera, nada se perde | `erroPassageiroEReaplicadoAteDarCertoENadaSePerde` (15 falhas seguidas) |
 | Evento que nunca sai (grande demais) | Só os eventos seguintes do mesmo pedido esperam; os outros pedidos seguem | `eventoQueNaoSaiTravaSoOMesmoPedido` |
 
-Mensagem com contrato quebrado (tipo ou versão desconhecidos, JSON inválido) não adianta tentar de novo: hoje ela é
-descartada com log de erro, sem travar as seguintes; na fase 4 vai para a fila de mortos.
+Mensagem com contrato quebrado (tipo ou versão desconhecidos, JSON inválido) não adianta tentar de novo: vai para a
+fila de mortos, sem travar as seguintes.
 
 Contraprovas: com o tratamento de erro padrão do Spring Kafka (10 tentativas sem espera), a mensagem passageira é
 descartada e o teste quebra; sem a checagem do id repetido, o mesmo comando entregue duas vezes gera duas respostas
 `UnidadeReservada`; sem a transação no consumidor, a gravação na saída é recusada; marcando como publicado mesmo
 quando o envio falha, o evento se perde (o teste do Redpanda fora quebra).
 
-O estoque já atende por comando: `ReservarUnidade` vira `UnidadeReservada` ou `ReservaRecusada` (sem estoque, edição
-inexistente ou pedido já devolvido) e `DevolverUnidade` vira `UnidadeDevolvida`. Pedidos e pagamentos ganham os
-seus consumidores nas fases 4 e 5.
+Mensagem com contrato quebrado vai para a **fila de mortos** (`<tópico>.mortos`): cada serviço guarda as suas e
+expõe `GET /mortos` e `POST /mortos/{id}/reprocessar`, que devolve a mensagem ao tópico de origem.
+
+## A saga
+
+O serviço de pedidos orquestra; estoque e pagamentos só respondem.
+
+```
+RESERVANDO ──UnidadeReservada──> AGUARDANDO_PAGAMENTO ──PagamentoAprovado──> CONFIRMADO
+    │  └──ReservaRecusada──> SEM_ESTOQUE           │  └──PagamentoRecusado──────────────┐
+    └──prazo (2 min)──┐                             └──prazo (5 min) + CancelarCobranca──┤
+                      └──────────> LIBERANDO (DevolverUnidade) ──UnidadeDevolvida──> CANCELADO
+                                    └──prazo (1 min): reenvia a devolução
+```
+
+- Cada passo trava o pedido, confere o estado e grava o estado novo e os próximos comandos numa transação só.
+- Evento que chega tarde (depois do prazo) é ignorado: a compensação já está a caminho.
+- Pagamento aprovado depois do prazo é **estornado**: o `CancelarCobranca` vai na mesma partição, depois do
+  `CobrarPedido`; se a cobrança ainda nem existia, ela fica proibida.
+- Devolução que chega antes da reserva (a reserva estava na fila de mortos e foi reprocessada depois) fica gravada
+  como trava: a reserva atrasada é recusada em vez de prender uma unidade para sempre.
+
+**O teste que importa** (`ponta-a-ponta/DerrubarPagamentosTest`): sobe pedidos, estoque e pagamentos como três
+processos Java, com Postgres e Redpanda de verdade, e derruba pagamentos com `kill -9`.
+
+| Cenário | Resultado exigido |
+|---|---|
+| 20 compras numa edição de 10 com pagamentos fora; pagamentos volta antes do prazo | Nenhum pedido preso; 10 sem estoque; cada `CONFIRMADO` tem uma cobrança aprovada e uma unidade a menos |
+| 5 compras com pagamentos fora até o prazo vencer; depois ele volta | Os 5 cancelados, estoque cheio de novo, e **nenhuma cobrança aprovada**: as atrasadas foram estornadas ou proibidas |
+| 60 compras; pagamentos cai com `kill -9` **no meio** (na rodada medida, 59 cobranças ainda pendentes) | Nenhum pedido preso; cobranças aprovadas = confirmados; estoque = 60 − confirmados |
+
+O teste também achou um problema de operação: depois do `kill -9`, o pagamentos novo ficava **37 s** parado,
+esperando a sessão do consumidor morto vencer (padrão de 45 s). Com sessão de 10 s, volta em ~9 s.
+
+Contraprovas: aceitando "pagamento aprovado" em qualquer estado, um pedido cancelado volta a ser confirmado (dois
+testes da saga quebram); sem o `CancelarCobranca` no prazo, as cobranças atrasadas ficam aprovadas para sempre (o
+cenário 2 não termina); sem a trava da devolução, a reserva reprocessada prende a unidade.
 
 ## Tecnologia
 
@@ -98,10 +133,10 @@ Testcontainers · GitHub Actions
 Precisa de Java 21 e Docker.
 
 ```bash
-./mvnw verify                      # testes: sobe Postgres e Redpanda de verdade em contêineres
+./mvnw verify                      # testes: sobe Postgres e Redpanda de verdade em contêineres (~5 min)
 
 docker compose up -d               # Postgres (5434), Redpanda (19092) e o console do Redpanda (8090)
 ./mvnw install -DskipTests
 ./mvnw -pl estoque spring-boot:run -Dspring-boot.run.profiles=dev
-curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"3"}
+curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"5"}
 ```

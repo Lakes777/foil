@@ -76,19 +76,28 @@ public class EstoqueService {
 	}
 
 	@Transactional
-	public ResultadoDaDevolucao devolver(UUID pedidoId) {
+	public ResultadoDaDevolucao devolver(UUID pedidoId, long edicaoId) {
 		// Só quem consegue mudar a situação devolve a unidade: duas devoluções juntas = uma só
-		var edicaoId = jdbc.sql("""
+		var devolvida = jdbc.sql("""
 				update reserva set situacao = 'devolvida', devolvida_em = now()
 				where pedido_id = :pedido and situacao = 'reservada'
 				returning edicao_id
 				""").param("pedido", pedidoId).query(Long.class).optional();
-		if (edicaoId.isEmpty()) {
-			return situacao(pedidoId).filter("devolvida"::equals).isPresent() ? ResultadoDaDevolucao.JA_DEVOLVIDA
-					: ResultadoDaDevolucao.SEM_RESERVA;
+		if (devolvida.isEmpty()) {
+			if (situacao(pedidoId).filter("devolvida"::equals).isPresent()) {
+				return ResultadoDaDevolucao.JA_DEVOLVIDA;
+			}
+			// Ainda sem reserva (a reserva pode chegar fora de ordem, reprocessada da fila de mortos): grava a
+			// devolução como trava, e a reserva atrasada recebe JA_DEVOLVIDA. Edição inexistente não precisa de trava.
+			jdbc.sql("""
+					insert into reserva (pedido_id, edicao_id, situacao, devolvida_em)
+					select :pedido, id, 'devolvida', now() from edicao where id = :edicao
+					on conflict (pedido_id) do nothing
+					""").param("pedido", pedidoId).param("edicao", edicaoId).update();
+			return ResultadoDaDevolucao.SEM_RESERVA;
 		}
 		jdbc.sql("update edicao set disponivel = disponivel + 1 where id = :edicao")
-			.param("edicao", edicaoId.get())
+			.param("edicao", devolvida.get())
 			.update();
 		return ResultadoDaDevolucao.DEVOLVIDA;
 	}
@@ -106,9 +115,16 @@ public class EstoqueService {
 			.single();
 	}
 
-	/** Edição nova da carta, com número seguinte ao da última (cada lançamento tem estoque próprio, P28). */
+	public static final int PRECO_PADRAO = 1000;
+
 	@Transactional
 	public Edicao novaEdicao(long cartaId, int total) {
+		return novaEdicao(cartaId, total, PRECO_PADRAO);
+	}
+
+	/** Edição nova da carta, com número seguinte ao da última (cada lançamento tem estoque próprio, P28). */
+	@Transactional
+	public Edicao novaEdicao(long cartaId, int total, int precoCentavos) {
 		// Trava a carta: duas edições novas ao mesmo tempo não pegam o mesmo número
 		jdbc.sql("select id from carta where id = :carta for update")
 			.param("carta", cartaId)
@@ -116,10 +132,15 @@ public class EstoqueService {
 			.optional()
 			.orElseThrow(() -> new IllegalArgumentException("carta inexistente: " + cartaId));
 		return jdbc.sql("""
-				insert into edicao (carta_id, numero, total, disponivel)
-				values (:carta, (select coalesce(max(numero), 0) + 1 from edicao where carta_id = :carta), :total, :total)
-				returning id, carta_id, numero, total, disponivel, criada_em
-				""").param("carta", cartaId).param("total", total).query(Edicao.class).single();
+				insert into edicao (carta_id, numero, total, disponivel, preco_centavos)
+				values (:carta, (select coalesce(max(numero), 0) + 1 from edicao where carta_id = :carta), :total, :total,
+				        :preco)
+				returning id, carta_id, numero, total, disponivel, preco_centavos, criada_em
+				""").param("carta", cartaId)
+			.param("total", total)
+			.param("preco", precoCentavos)
+			.query(Edicao.class)
+			.single();
 	}
 
 	@Transactional(readOnly = true)
@@ -138,7 +159,7 @@ public class EstoqueService {
 	@Transactional(readOnly = true)
 	public List<Edicao> edicoes(long cartaId) {
 		return jdbc.sql("""
-				select id, carta_id, numero, total, disponivel, criada_em
+				select id, carta_id, numero, total, disponivel, preco_centavos, criada_em
 				from edicao where carta_id = :carta order by numero
 				""").param("carta", cartaId).query(Edicao.class).list();
 	}
@@ -146,7 +167,7 @@ public class EstoqueService {
 	@Transactional(readOnly = true)
 	public Optional<Edicao> buscarEdicao(long edicaoId) {
 		return jdbc.sql("""
-				select id, carta_id, numero, total, disponivel, criada_em from edicao where id = :id
+				select id, carta_id, numero, total, disponivel, preco_centavos, criada_em from edicao where id = :id
 				""").param("id", edicaoId).query(Edicao.class).optional();
 	}
 

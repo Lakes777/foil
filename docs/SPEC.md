@@ -120,18 +120,48 @@ Mudança de formato = versão nova; consumidor aceita a versão atual e a anteri
 consumidor aceita só a v1; a regra da versão anterior começa quando sair a primeira v2.) Os contratos são
 testados nos dois lados (quem escreve e quem lê usam o mesmo módulo `contratos`).
 
-### Estados do pedido (rascunho; a fase 4 fecha)
+### Estados do pedido (fechados na fase 4, 19/10/2026)
 
 ```
-CRIADO -> RESERVANDO -> AGUARDANDO_PAGAMENTO -> CONFIRMADO
-              |                  |    \
-              v                  |     -> (prazo de 5 min vencido) -> LIBERANDO -> CANCELADO
-        SEM_ESTOQUE (final)      v
-                       PAGAMENTO_RECUSADO -> LIBERANDO -> CANCELADO
+RESERVANDO ──UnidadeReservada──> AGUARDANDO_PAGAMENTO ──PagamentoAprovado──> CONFIRMADO
+    │  └──ReservaRecusada──> SEM_ESTOQUE (final)   │  └──PagamentoRecusado──────────────┐
+    └──prazo da reserva (2 min)──┐                  └──prazo do pagamento (5 min)        │
+                                 │                     + CancelarCobranca ─────────────┤
+                                 └──────────> LIBERANDO (DevolverUnidade) ──UnidadeDevolvida──> CANCELADO
+                                               └──prazo (1 min): reenvia DevolverUnidade
 ```
 
-Estados finais: `CONFIRMADO`, `SEM_ESTOQUE`, `CANCELADO`. Nenhum pedido fica parado num estado
-intermediário: todo estado intermediário tem prazo e um caminho de saída.
+Estados finais: `CONFIRMADO`, `SEM_ESTOQUE`, `CANCELADO` (com `motivo`: `PAGAMENTO_RECUSADO`,
+`PAGAMENTO_CANCELADA`, `PRAZO_DA_RESERVA`, `PRAZO_DO_PAGAMENTO`; em `SEM_ESTOQUE`, o motivo do estoque). `CRIADO` saiu: o pedido já nasce `RESERVANDO`, com o comando
+na saída, na mesma transação. Decisões da fase 4:
+
+- Cada passo trava a linha do pedido (`for update`), confere o estado e grava estado + comandos numa
+  transação. Evento que não cabe no estado atual é ignorado (chegou depois do prazo; a compensação já foi).
+- Todo estado intermediário tem prazo (um verificador a cada segundo). Em `LIBERANDO` (achado do revisor),
+  o prazo de 1 min **reenvia** o `DevolverUnidade`: a resposta pode ter caído na fila de mortos, e devolver de
+  novo não devolve duas vezes.
+- A ordem na partição não basta: o botão de reprocessar põe a mensagem no fim da fila. Por isso o
+  `DevolverUnidade` leva a edição e, se ainda não houver reserva, o estoque **grava a devolução como trava**
+  (um `ReservarUnidade` reprocessado depois recebe `JA_DEVOLVIDA` e não prende unidade). Mesma ideia da
+  trava de cobrança em pagamentos.
+- Consumidor morto sem avisar (kill -9) só perde as partições quando a sessão vence. Sessão de 10 s (o padrão
+  de 45 s parava as cobranças por 37 s a cada queda, medido no teste de ponta a ponta).
+- Prazo do pagamento vencido manda `CancelarCobranca` antes do `DevolverUnidade`. Em pagamentos: cobrança
+  pendente é cancelada, aprovada é **estornada**, e cobrança que ainda não existe fica proibida (um
+  `CobrarPedido` atrasado recebe `PagamentoRecusado{CANCELADA}`). Isso resolve "pagamento depois do
+  cancelamento" (§6) para o pagamento simulado; a fase 5 aplica a mesma regra ao Fiel.
+- Pagamento simulado (P10): aprovado ou recusado por sorteio fixo pelo id do pedido (taxa padrão 80%), então
+  repetir dá sempre a mesma resposta.
+- Preço: vem do estoque (`edicao.preco_centavos`) no `UnidadeReservada`; o visitante nunca informa valor.
+- Fila de mortos: erro de contrato vai para `<tópico>.mortos` (mesma partição), cada serviço guarda os seus
+  na tabela `morto` e expõe `GET /mortos` e `POST /mortos/{id}/reprocessar` (o botão do painel, fase 7).
+  Na fase 8, o Caddy precisa decidir quem pode apertar o botão.
+- Prova do critério: o módulo `ponta-a-ponta` sobe os três serviços como processos Java (os `-exec.jar`) e
+  derruba pagamentos com `kill -9`, parado e no meio do trabalho. **Fase 8:** o jar executável de cada
+  serviço é o `*-exec.jar` (o sem sufixo não roda sozinho); o Dockerfile e a `/publicar-vm` usam esse.
+- **Fase 8 (segurança, achado do revisor):** `GET/POST /mortos*` mostram mensagens e reprocessam; o Caddy
+  bloqueia de fora (o botão do painel passa por um caminho protegido, a decidir na fase 7). `POST /pedidos`
+  só vai ao ar depois do limite por IP da fase 6 (senão um laço de curl compra uma edição inteira).
 
 ## 6. Regras de negócio
 

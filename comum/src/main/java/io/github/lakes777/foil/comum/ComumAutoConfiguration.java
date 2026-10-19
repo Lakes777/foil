@@ -1,11 +1,14 @@
 package io.github.lakes777.foil.comum;
 
 import java.util.Map;
+import java.util.stream.Stream;
 
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +23,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import io.github.lakes777.foil.comum.eventos.AgendaDaSaida;
 import io.github.lakes777.foil.comum.eventos.ErrosDoConsumidor;
 import io.github.lakes777.foil.comum.eventos.EventosProcessados;
+import io.github.lakes777.foil.comum.eventos.Mortos;
 import io.github.lakes777.foil.comum.eventos.PublicadorDaSaida;
 import io.github.lakes777.foil.comum.eventos.Saida;
 import io.github.lakes777.foil.contratos.Topicos;
@@ -27,7 +31,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** O que os três serviços têm igual. Entra sozinho por estar no classpath. */
 @AutoConfiguration
-@Import({ SaudeController.class, ComumAutoConfiguration.Agendamento.class })
+@Import({ SaudeController.class, ComumAutoConfiguration.Agendamento.class, MortosController.class })
 public class ComumAutoConfiguration {
 
 	@Bean
@@ -45,12 +49,31 @@ public class ComumAutoConfiguration {
 		return new EventosProcessados(jdbc);
 	}
 
-	/** Os tópicos com {@link Topicos#PARTICOES} partições; criar de novo um que já existe não faz nada. */
+	/**
+	 * Os tópicos e as filas de mortos, com {@link Topicos#PARTICOES} partições (a fila de mortos usa a mesma
+	 * partição da origem). Criar de novo um que já existe não faz nada.
+	 */
 	@Bean
 	KafkaAdmin.NewTopics topicos() {
 		return new KafkaAdmin.NewTopics(Topicos.TODOS.stream()
+			.flatMap(nome -> Stream.of(nome, nome + Topicos.MORTOS))
 			.map(nome -> TopicBuilder.name(nome).partitions(Topicos.PARTICOES).replicas(1).build())
 			.toArray(NewTopic[]::new));
+	}
+
+	/** Boot liga este tratador ao container dos listeners. Esperas configuráveis para os testes. */
+	@Bean
+	DefaultErrorHandler errosDoConsumidor(KafkaTemplate<String, String> kafka,
+			@Value("${foil.consumo.espera-inicial-ms:500}") long esperaInicial,
+			@Value("${foil.consumo.espera-maxima-ms:30000}") long esperaMaxima) {
+		return ErrosDoConsumidor.criar(kafka, esperaInicial, esperaMaxima);
+	}
+
+	/** Só nos serviços que dizem quais filas de mortos ler ({@code foil.mortos.topicos}). */
+	@Bean
+	@ConditionalOnProperty("foil.mortos.topicos")
+	Mortos mortos(JdbcClient jdbc, KafkaTemplate<String, String> kafka) {
+		return new Mortos(jdbc, kafka);
 	}
 
 	/**
@@ -58,18 +81,22 @@ public class ComumAutoConfiguration {
 	 * (max.block.ms) com a transação da saída aberta. Pior caso por evento: ~11 s (ver PublicadorDaSaida). acks=all + idempotência: o Redpanda não grava duplicado
 	 * por causa de uma nova tentativa do próprio produtor.
 	 */
-	/** Boot liga este tratador ao container dos listeners. Esperas configuráveis para os testes. */
-	@Bean
-	DefaultErrorHandler errosDoConsumidor(@Value("${foil.consumo.espera-inicial-ms:500}") long esperaInicial,
-			@Value("${foil.consumo.espera-maxima-ms:30000}") long esperaMaxima) {
-		return ErrosDoConsumidor.criar(esperaInicial, esperaMaxima);
-	}
-
 	@Bean
 	DefaultKafkaProducerFactoryCustomizer prazosDoProdutor() {
 		return fabrica -> fabrica.updateConfigs(Map.of(ProducerConfig.MAX_BLOCK_MS_CONFIG, 5000,
 				ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 4000, ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 5000,
 				ProducerConfig.ACKS_CONFIG, "all", ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true));
+	}
+
+	/**
+	 * Consumidor que morre sem avisar (kill -9, queda da VM) só perde as partições quando a sessão dele vence; até
+	 * lá, o serviço que voltou fica parado esperando. O padrão (45 s) parava as cobranças por mais de meio minuto
+	 * a cada queda; 10 s (o Redpanda aceita a partir de 6 s), com batida a cada 3 s.
+	 */
+	@Bean
+	DefaultKafkaConsumerFactoryCustomizer sessaoDoConsumidor() {
+		return fabrica -> fabrica.updateConfigs(Map.of(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 10_000,
+				ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 3_000));
 	}
 
 	@Bean

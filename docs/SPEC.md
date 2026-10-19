@@ -125,6 +125,12 @@ intermediário: todo estado intermediário tem prazo e um caminho de saída.
 
 - **Reserva atômica (P23):** `update edicao set disponivel = disponivel - 1 where id = ? and disponivel > 0`;
   zero linhas afetadas = sem estoque. Mais um `check (disponivel >= 0)` no banco como última trava.
+- **Resultado da reserva guardado (19/10/2026, fase 2, achado do revisor):** a tabela `reserva` tem uma
+  linha por pedido com a `situacao` (`reservada`, `sem_estoque`, `devolvida`). O mesmo pedido repetido, mesmo
+  com outro id de evento, recebe sempre a mesma resposta (`JA_RESERVADA`, `SEM_ESTOQUE`, `JA_DEVOLVIDA`).
+  Assim um pedido que terminou em `SEM_ESTOQUE` nunca leva depois uma unidade devolvida por outro (ela sumiria,
+  porque a saga dele já acabou). A fase 3/4 traduz esses resultados em eventos; `JA_DEVOLVIDA` não pode
+  virar "reservado" na saga.
 - **Prazo de pagamento (P11):** a reserva vale 5 minutos; vencido o prazo sem pagamento, a saga cancela
   e devolve a unidade. Pagamento que chega depois do cancelamento é estornado pelo Fiel (ou registrado
   como anomalia, a decidir na fase 5).

@@ -59,6 +59,15 @@ public class EstoqueService {
 		};
 	}
 
+	/** A edição gravada na reserva do pedido (a que vale, mesmo que um comando repetido traga outra). */
+	@Transactional(readOnly = true)
+	public Optional<Long> edicaoDaReserva(UUID pedidoId) {
+		return jdbc.sql("select edicao_id from reserva where pedido_id = :pedido")
+			.param("pedido", pedidoId)
+			.query(Long.class)
+			.optional();
+	}
+
 	private Optional<String> situacao(UUID pedidoId) {
 		return jdbc.sql("select situacao from reserva where pedido_id = :pedido")
 			.param("pedido", pedidoId)

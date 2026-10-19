@@ -88,7 +88,7 @@ Módulos: `contratos` (envelope e eventos, usado pelos três), `comum`, `pedidos
 - **Fila de mortos (P25):** depois de N tentativas com espera crescente, o evento vai para
   `<tópico>.mortos`, aparece no painel e pode ser reprocessado por um botão.
 
-### Tópicos (rascunho; a fase 3 fecha os nomes)
+### Tópicos (fechados na fase 3, 19/10/2026: ficaram como no rascunho)
 
 | Tópico | Quem escreve | Quem lê |
 |---|---|---|
@@ -98,6 +98,17 @@ Módulos: `contratos` (envelope e eventos, usado pelos três), `comum`, `pedidos
 | `pagamentos.eventos` | pagamentos | pedidos |
 | `pedidos.eventos` | pedidos | painel (SSE) e observabilidade |
 
+Estoque (fase 3): comandos `ReservarUnidade {edicaoId}` e `DevolverUnidade {}`; eventos `UnidadeReservada
+{edicaoId}` (também para pedido repetido já reservado), `ReservaRecusada {edicaoId, motivo}` com motivo
+`SEM_ESTOQUE`, `EDICAO_INEXISTENTE` ou `JA_DEVOLVIDA`, e `UnidadeDevolvida {devolvidaAgora}`. A outbox é a tabela
+`saida` (publicada em ordem de `seq`, marcada só depois da confirmação; produtor com acks=all e idempotência).
+Erro no consumidor (19/10/2026, achado do revisor): erro passageiro (banco ou Redpanda fora) é tentado de
+novo para sempre, com espera crescente até 30 s, e a partição espera, então nada se perde. Erro de contrato
+(tipo ou versão desconhecidos, JSON inválido) é descartado com log de erro, sem travar os seguintes; a fila de
+mortos da fase 4 passa a guardá-lo. Na saída, um evento que não consegue sair trava só os eventos seguintes do
+mesmo pedido; os outros pedidos seguem (a fase 4/9 precisa tornar isso visível no painel). As linhas já
+publicadas da `saida` e os ids antigos de `evento_processado` entram na limpeza das 4h10 (fase 8).
+
 ### Envelope (P20)
 
 ```json
@@ -105,7 +116,8 @@ Módulos: `contratos` (envelope e eventos, usado pelos três), `comum`, `pedidos
   "ocorridoEm": "2026-10-18T21:00:00Z", "pedidoId": "uuid", "dados": { } }
 ```
 
-Mudança de formato = versão nova; consumidor aceita a versão atual e a anterior. Os contratos são
+Mudança de formato = versão nova; consumidor aceita a versão atual e a anterior. (19/10/2026: enquanto tudo está na v1, o
+consumidor aceita só a v1; a regra da versão anterior começa quando sair a primeira v2.) Os contratos são
 testados nos dois lados (quem escreve e quem lê usam o mesmo módulo `contratos`).
 
 ### Estados do pedido (rascunho; a fase 4 fecha)

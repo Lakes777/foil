@@ -2,7 +2,7 @@ package io.github.lakes777.foil.contratos;
 
 import java.util.List;
 
-/** Nomes dos tópicos (rascunho da SPEC; a fase 3 fecha os nomes). */
+/** Nomes dos tópicos (fechados na fase 3). */
 public final class Topicos {
 
 	public static final String ESTOQUE_COMANDOS = "estoque.comandos";

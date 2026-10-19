@@ -1,11 +1,87 @@
 package io.github.lakes777.foil.comum;
 
+import java.util.Map;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.KafkaAdmin;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+import io.github.lakes777.foil.comum.eventos.AgendaDaSaida;
+import io.github.lakes777.foil.comum.eventos.ErrosDoConsumidor;
+import io.github.lakes777.foil.comum.eventos.EventosProcessados;
+import io.github.lakes777.foil.comum.eventos.PublicadorDaSaida;
+import io.github.lakes777.foil.comum.eventos.Saida;
+import io.github.lakes777.foil.contratos.Topicos;
+import tools.jackson.databind.json.JsonMapper;
 
 /** O que os três serviços têm igual. Entra sozinho por estar no classpath. */
 @AutoConfiguration
-@Import(SaudeController.class)
+@Import({ SaudeController.class, ComumAutoConfiguration.Agendamento.class })
 public class ComumAutoConfiguration {
+
+	@Bean
+	Saida saida(JdbcClient jdbc, JsonMapper json) {
+		return new Saida(jdbc, json);
+	}
+
+	@Bean
+	PublicadorDaSaida publicadorDaSaida(JdbcClient jdbc, KafkaTemplate<String, String> kafka) {
+		return new PublicadorDaSaida(jdbc, kafka);
+	}
+
+	@Bean
+	EventosProcessados eventosProcessados(JdbcClient jdbc) {
+		return new EventosProcessados(jdbc);
+	}
+
+	/** Os tópicos com {@link Topicos#PARTICOES} partições; criar de novo um que já existe não faz nada. */
+	@Bean
+	KafkaAdmin.NewTopics topicos() {
+		return new KafkaAdmin.NewTopics(Topicos.TODOS.stream()
+			.map(nome -> TopicBuilder.name(nome).partitions(Topicos.PARTICOES).replicas(1).build())
+			.toArray(NewTopic[]::new));
+	}
+
+	/**
+	 * Produtor com prazos curtos: sem isso, com o Redpanda fora, um send() espera até 60 s pelos metadados
+	 * (max.block.ms) com a transação da saída aberta. Pior caso por evento: ~11 s (ver PublicadorDaSaida). acks=all + idempotência: o Redpanda não grava duplicado
+	 * por causa de uma nova tentativa do próprio produtor.
+	 */
+	/** Boot liga este tratador ao container dos listeners. Esperas configuráveis para os testes. */
+	@Bean
+	DefaultErrorHandler errosDoConsumidor(@Value("${foil.consumo.espera-inicial-ms:500}") long esperaInicial,
+			@Value("${foil.consumo.espera-maxima-ms:30000}") long esperaMaxima) {
+		return ErrosDoConsumidor.criar(esperaInicial, esperaMaxima);
+	}
+
+	@Bean
+	DefaultKafkaProducerFactoryCustomizer prazosDoProdutor() {
+		return fabrica -> fabrica.updateConfigs(Map.of(ProducerConfig.MAX_BLOCK_MS_CONFIG, 5000,
+				ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, 4000, ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, 5000,
+				ProducerConfig.ACKS_CONFIG, "all", ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true));
+	}
+
+	@Bean
+	@ConditionalOnProperty(name = "foil.saida.automatica", havingValue = "true", matchIfMissing = true)
+	AgendaDaSaida agendaDaSaida(PublicadorDaSaida publicador) {
+		return new AgendaDaSaida(publicador);
+	}
+
+	@EnableScheduling
+	@ConditionalOnProperty(name = "foil.saida.automatica", havingValue = "true", matchIfMissing = true)
+	static class Agendamento {
+
+	}
 
 }

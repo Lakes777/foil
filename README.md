@@ -14,7 +14,7 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 |---|---|---|
 | 1. Esqueleto | Maven multi-módulo, 3 serviços com `/saude`, Flyway, contratos, Testcontainers, CI | feita |
 | 2. Estoque | Cartas, edições, reserva atômica, devolução | feita |
-| 3. Eventos | Outbox, envelope, consumidores idempotentes, partição por pedido | |
+| 3. Eventos | Outbox, envelope, consumidores idempotentes, partição por pedido | feita |
 | 4. Saga | Máquina de estados, compensações, prazo de 5 min, fila de mortos | |
 | 5. Pagamento | Integração com o Fiel (cobrança, webhook) | |
 | 6. Lançamento | 200 robôs contra 10 unidades, ao vivo | |
@@ -26,8 +26,8 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 
 | Módulo | O que tem |
 |---|---|
-| `contratos` | Envelope dos eventos (`id`, `tipo`, `versao`, `ocorridoEm`, `pedidoId`, `dados`) e nomes dos tópicos |
-| `comum` | Base dos três serviços: `GET /saude` (200 só com banco e Redpanda respondendo; 503 dizendo qual caiu) e, nos testes, os contêineres |
+| `contratos` | Envelope dos eventos (`id`, `tipo`, `versao`, `ocorridoEm`, `pedidoId`, `dados`), tópicos e os comandos/eventos de cada serviço |
+| `comum` | Base dos três serviços: `GET /saude` (200 só com banco e Redpanda respondendo; 503 dizendo qual caiu), outbox, consumidor idempotente, tópicos e, nos testes, os contêineres |
 | `pedidos` | Orquestrador da saga (porta 8091) |
 | `estoque` | Cartas, edições, reserva e devolução; `GET /cartas`, `/cartas/{id}/edicoes`, `/edicoes/{id}` (porta 8092) |
 | `pagamentos` | Cobranças pelo Fiel ou simuladas (porta 8093) |
@@ -58,6 +58,36 @@ nenhum erro e `disponivel = 0`. As contraprovas (o código trocado de propósito
 | Apagar a reserva quando fica sem estoque (em vez de guardar o resultado) | O pedido repetido leva uma unidade devolvida depois, e a saga dele já tinha acabado |
 | Jeito ingênuo: lê o disponível em Java e grava `disponivel = lido - 1` | **20 e 15 vendas** em duas rodadas, numa edição de 10, e o `check` não pega, porque o número nunca fica negativo |
 
+## Como nenhum evento se perde nem é aplicado duas vezes
+
+- **Outbox:** o serviço nunca publica no Redpanda dentro da regra de negócio. Ele grava o evento na tabela `saida`,
+  na **mesma transação** da mudança de estado (gravar fora de uma transação é proibido e dá erro). Um publicador lê
+  os pendentes em ordem e só marca como publicado depois da confirmação do Redpanda; no primeiro erro, para, para
+  não passar um evento na frente do outro.
+- **Consumidor idempotente:** quem consome anota o id do evento na tabela `evento_processado`, na mesma transação do
+  efeito e da resposta. O mesmo id de novo não faz nada.
+- **Ordem:** a chave de cada mensagem é o id do pedido, então tudo de um pedido cai na mesma partição (3 por tópico).
+
+| Queda | O que acontece | Teste |
+|---|---|---|
+| Entre gravar e publicar | O evento fica pendente no banco e sai quando o serviço volta | `quedaEntreGravarEPublicarNaoPerdeOEvento` |
+| Entre publicar e marcar | O evento sai duas vezes com o mesmo id; o consumidor ignora a segunda | `quedaEntrePublicarEMarcarRepublicaOMesmoId` + `oMesmoComandoEntregueDuasVezesTemEfeitoUmaVez` |
+| Redpanda fora | Nada é marcado como publicado; o publicador desiste em segundos, sem travar | `redpandaForaDeixaOEventoPendente` |
+| Banco do consumidor fora | A mensagem é tentada de novo para sempre, com espera crescente (até 30 s); a partição espera, nada se perde | `erroPassageiroEReaplicadoAteDarCertoENadaSePerde` (15 falhas seguidas) |
+| Evento que nunca sai (grande demais) | Só os eventos seguintes do mesmo pedido esperam; os outros pedidos seguem | `eventoQueNaoSaiTravaSoOMesmoPedido` |
+
+Mensagem com contrato quebrado (tipo ou versão desconhecidos, JSON inválido) não adianta tentar de novo: hoje ela é
+descartada com log de erro, sem travar as seguintes; na fase 4 vai para a fila de mortos.
+
+Contraprovas: com o tratamento de erro padrão do Spring Kafka (10 tentativas sem espera), a mensagem passageira é
+descartada e o teste quebra; sem a checagem do id repetido, o mesmo comando entregue duas vezes gera duas respostas
+`UnidadeReservada`; sem a transação no consumidor, a gravação na saída é recusada; marcando como publicado mesmo
+quando o envio falha, o evento se perde (o teste do Redpanda fora quebra).
+
+O estoque já atende por comando: `ReservarUnidade` vira `UnidadeReservada` ou `ReservaRecusada` (sem estoque, edição
+inexistente ou pedido já devolvido) e `DevolverUnidade` vira `UnidadeDevolvida`. Pedidos e pagamentos ganham os
+seus consumidores nas fases 4 e 5.
+
 ## Tecnologia
 
 Java 21 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · JUnit 5 ·
@@ -73,5 +103,5 @@ Precisa de Java 21 e Docker.
 docker compose up -d               # Postgres (5434), Redpanda (19092) e o console do Redpanda (8090)
 ./mvnw install -DskipTests
 ./mvnw -pl estoque spring-boot:run -Dspring-boot.run.profiles=dev
-curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"1"}
+curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"3"}
 ```

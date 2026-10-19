@@ -1,0 +1,27 @@
+package io.github.lakes777.foil.contratos;
+
+/** Comandos que o orquestrador (pedidos) manda para o estoque, no tópico {@link Topicos#ESTOQUE_COMANDOS}. */
+public final class EstoqueComandos {
+
+	/** Tira uma unidade da edição para o pedido do envelope. */
+	public record ReservarUnidade(long edicaoId) {
+
+		public static final String TIPO = "ReservarUnidade";
+
+		public static final int VERSAO = 1;
+
+	}
+
+	/** Compensação: devolve a unidade do pedido do envelope (repetir não devolve duas vezes). */
+	public record DevolverUnidade() {
+
+		public static final String TIPO = "DevolverUnidade";
+
+		public static final int VERSAO = 1;
+
+	}
+
+	private EstoqueComandos() {
+	}
+
+}

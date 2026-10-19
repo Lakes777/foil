@@ -174,8 +174,8 @@ na saída, na mesma transação. Decisões da fase 4:
   porque a saga dele já acabou). A fase 3/4 traduz esses resultados em eventos; `JA_DEVOLVIDA` não pode
   virar "reservado" na saga.
 - **Prazo de pagamento (P11):** a reserva vale 5 minutos; vencido o prazo sem pagamento, a saga cancela
-  e devolve a unidade. Pagamento que chega depois do cancelamento é estornado pelo Fiel (ou registrado
-  como anomalia, a decidir na fase 5).
+  e devolve a unidade. Pagamento que chega depois do cancelamento é estornado pelo Fiel (decidido na fase 5,
+  19/10/2026: estorno, ver §7).
 - **Edições (P28):** cada lançamento cria uma edição nova da carta (ex.: 10 unidades); o estoque de um
   lançamento não interfere no próximo.
 - **Lançamento (P7, P27):** "Simular lançamento" solta ~200 compradores-robôs contra uma edição de 10.
@@ -194,6 +194,52 @@ na saída, na mesma transação. Decisões da fase 4:
   avisa o Foil, que confere a assinatura.
 - **Reset do Fiel às 4h:** o Foil recadastra o webhook pela chave ao subir e todo dia às 4h05, guardando
   o segredo novo. A limpeza do Foil roda às 4h10 (P28).
+
+> 19/10/2026 (fase 5): decisões tomadas ao fazer.
+>
+> - **O que a chave pode (mudou):** criar, ler uma, cancelar e estornar as cobranças da Loja Foil, e cadastrar o
+>   webhook (`PUT /webhook`). "Só cria e lê" não bastava: a compensação da fase 4 (prazo vencido cancela a pendente
+>   e estorna a paga) precisa cancelar e estornar no Fiel, e o recadastro das 4h05 é pela chave. Carteira,
+>   transferências, chaves e a lista de cobranças ficam fora (403). Pior caso com a chave vazada: devolver aos
+>   clientes o que eles pagaram. Comparação em tempo constante; menos de 32 caracteres, o Fiel não sobe.
+> - **Loja Foil** = `foil@exemplo.fiel` (domínio que o cadastro público recusa), criada na partida quando
+>   `FIEL_INTEGRACAO_CHAVE` existe; senha aleatória que ninguém conhece.
+> - **Referência da cobrança (V9 no Fiel):** opcional, única por loja; criar de novo com a mesma devolve a mesma
+>   cobrança (`Idempotent-Replayed`), com outro valor é 422. É o id do pedido, vai no aviso, e é por ela que o Foil
+>   acha o pedido (o id do Fiel recomeça do 1 quando a demonstração é recriada).
+> - **Contratos:** `CobrarPedido` v2 `{valorCentavos, forma}` com `forma` `SIMULADA` ou `FIEL`: a primeira v2 do
+>   projeto, então a regra "aceita a atual e a anterior" começou aqui (v1 vale como `SIMULADA`). Evento novo
+>   `CobrancaCriada {qr, linkParaPagar}` (v1), que a saga guarda no pedido sem mudar de estado. `POST /pedidos` sem
+>   `forma` é `FIEL` (a compra da loja); os robôs da fase 6 usam `SIMULADA`. **Fase 8:** decidir se o
+>   `POST /pedidos` público continua aceitando `SIMULADA`.
+> - **Quem fala com o Fiel é o `TrabalhoNoFiel`, fora do consumidor do Redpanda:** o consumidor só anota a cobrança
+>   (`pendente`, `cancelando`, `estornando`, V5 de pagamentos), e o trabalhador faz o pedido HTTP sem transação
+>   aberta, com espera crescente até 60 s. Com o Fiel fora do ar, só as compras manuais esperam; os comandos dos
+>   robôs seguem (testado). Erro 4xx do Fiel na criação = `PagamentoRecusado{RECUSADO}`.
+> - **Pagamento depois do cancelamento (§6): estorno, não anomalia.** Cancelar no Fiel e receber 409 com a cobrança
+>   paga, ou o aviso de paga chegando com a cobrança cancelando, vira `estornando`, e o estorno usa o id do pedido
+>   como Idempotency-Key. O QR vale o mesmo prazo do pagamento da saga (5 min).
+> - **Avisos:** `POST /fiel/avisos` em pagamentos confere o HMAC sobre os bytes recebidos, o `t` a no máximo 5 min
+>   e guarda o `Fiel-Evento-Id` em `evento_processado`. Sem segredo ainda = 503 (o Fiel tenta de novo). Rede de
+>   segurança: a cobrança pendente é conferida no Fiel a cada 15 s, então um aviso perdido não deixa a saga presa.
+> - **Endereços na VM (fase 8):** a API do Fiel pelo apelido interno (`FOIL_FIEL_API=http://fiel-api:8080`), mas
+>   os avisos pelo endereço público (`FOIL_FIEL_WEBHOOK=https://foil.andrelagos.dev/fiel/avisos`), porque o Fiel
+>   só entrega em `https://` fora da rede interna (proteção contra SSRF dele). O Caddy precisa mandar
+>   `/fiel/avisos` para `foil-pagamentos`. A mesma chave vai em `FIEL_INTEGRACAO_CHAVE` (Fiel) e `FOIL_FIEL_CHAVE`
+>   (Foil); o Fiel com a V9 precisa ser publicado **antes** do Foil.
+> - **Prova:** `CompraPeloFielTest` (ponta-a-ponta) sobe o jar do Fiel de verdade com os três serviços: compra paga
+>   pelo QR vira `CONFIRMADO`; pagamento feito com pagamentos derrubado (`kill -9`) e depois do prazo termina
+>   `CANCELADO`, com o dinheiro estornado no Fiel e a unidade de volta; o Fiel recusando a cobrança desfaz a saga.
+>   O CI monta o jar do `main` do Fiel, então uma mudança no Fiel que quebre o contrato aparece no CI do Foil.
+> - **Achados do revisor (19/10):** o id da cobrança no Fiel recomeça do 1 a cada recriação das 4h, então antes de
+>   conferir, cancelar ou estornar o trabalhador lê a cobrança e exige `referencia` = id do pedido; outra referência
+>   = cobrança que sumiu (sem isso, o cancelamento de um pedido antigo estornava o pagamento de um pedido novo com o
+>   mesmo id; teste + contraprova). Fiel fora do ar no cadastro do webhook não derruba pagamentos (o
+>   `ApplicationReadyEvent` que lança exceção fecha a aplicação); tenta de novo a cada minuto, inclusive depois das
+>   4h05. `/fiel/avisos` recusa corpo acima de 64 KB (413) sem ler o resto; **fase 8:** `request_body max_size` no
+>   Caddy também. Ao desistir, a saga tira o QR do pedido.
+> - **Ordem de publicação (fase 8):** Fiel com a V9 antes do Foil, e no Foil pagamentos antes de pedidos (um
+>   pagamentos antigo mandaria o `CobrarPedido` v2 para a fila de mortos).
 
 ## 8. Demonstração
 

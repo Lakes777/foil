@@ -138,7 +138,7 @@ class DerrubarPagamentosTest {
 		for (int i = 0; i < quantos; i++) {
 			var pedido = HttpRequest.newBuilder(URI.create(pedidos.url("/pedidos")))
 				.header("Content-Type", "application/json")
-				.POST(HttpRequest.BodyPublishers.ofString("{\"edicaoId\":" + edicao + "}"))
+				.POST(HttpRequest.BodyPublishers.ofString("{\"edicaoId\":" + edicao + ",\"forma\":\"SIMULADA\"}"))
 				.build();
 			assertThat(HTTP.send(pedido, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(202);
 		}

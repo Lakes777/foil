@@ -24,7 +24,9 @@ import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeDevolvida;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeReservada;
 import io.github.lakes777.foil.contratos.PagamentosComandos.CancelarCobranca;
 import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido;
+import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido.Forma;
 import io.github.lakes777.foil.contratos.PagamentosEventos.CobrancaCancelada;
+import io.github.lakes777.foil.contratos.PagamentosEventos.CobrancaCriada;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoAprovado;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoEstornado;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoRecusado;
@@ -41,6 +43,11 @@ import tools.jackson.databind.json.JsonMapper;
 public class Saga {
 
 	private static final Logger log = LoggerFactory.getLogger(Saga.class);
+
+	private static final String COLUNAS = """
+			select id, edicao_id, estado, motivo, preco_centavos, prazo, criado_em, atualizado_em, forma, qr,
+			link_para_pagar from pedido
+			""";
 
 	private final JdbcClient jdbc;
 
@@ -69,13 +76,19 @@ public class Saga {
 		this.prazoDaLiberacao = prazoDaLiberacao;
 	}
 
-	/** Começa a saga: o pedido nasce RESERVANDO, já com o comando de reserva na saída. */
+	/**
+	 * Começa a saga: o pedido nasce RESERVANDO, já com o comando de reserva na saída. A {@code forma} só importa
+	 * depois da reserva: é o CobrarPedido que a leva a pagamentos.
+	 */
 	@Transactional
-	public Pedido criar(long edicaoId) {
+	public Pedido criar(long edicaoId, Forma forma) {
 		var id = UUID.randomUUID();
-		jdbc.sql("insert into pedido (id, edicao_id, estado, prazo) values (:id, :edicao, 'RESERVANDO', :prazo)")
+		jdbc.sql("""
+				insert into pedido (id, edicao_id, estado, prazo, forma) values (:id, :edicao, 'RESERVANDO', :prazo, :forma)
+				""")
 			.param("id", id)
 			.param("edicao", edicaoId)
+			.param("forma", forma.name())
 			.param("prazo", daquiA(prazoDaReserva))
 			.update();
 		mandar(Topicos.ESTOQUE_COMANDOS, id, ReservarUnidade.TIPO, ReservarUnidade.VERSAO, new ReservarUnidade(edicaoId));
@@ -105,7 +118,7 @@ public class Saga {
 						.param("id", p.id())
 						.update();
 					mandar(Topicos.PAGAMENTOS_COMANDOS, p.id(), CobrarPedido.TIPO, CobrarPedido.VERSAO,
-							new CobrarPedido(dados.precoCentavos()));
+							new CobrarPedido(dados.precoCentavos(), p.forma()));
 					contar(p.id(), Estado.AGUARDANDO_PAGAMENTO, null, p.edicaoId());
 				}
 				else {
@@ -119,6 +132,18 @@ public class Saga {
 				}
 				else {
 					// LIBERANDO (prazo da reserva venceu): a resposta ao DevolverUnidade é que fecha a saga
+					ignorar(p, evento);
+				}
+			}
+			case CobrancaCriada.TIPO -> {
+				// O QR do Fiel: não muda o estado, só dá ao visitante como pagar. Depois do prazo não serve mais
+				var dados = dados(evento, CobrancaCriada.class, CobrancaCriada.VERSAO);
+				if (p.estado() == Estado.AGUARDANDO_PAGAMENTO) {
+					jdbc.sql("""
+							update pedido set qr = :qr, link_para_pagar = :link, atualizado_em = now() where id = :id
+							""").param("qr", dados.qr()).param("link", dados.linkParaPagar()).param("id", p.id()).update();
+				}
+				else {
 					ignorar(p, evento);
 				}
 			}
@@ -166,8 +191,7 @@ public class Saga {
 	 */
 	@Transactional
 	public int vencerPrazos() {
-		var vencidos = jdbc.sql("""
-				select id, edicao_id, estado, motivo, preco_centavos, prazo, criado_em, atualizado_em from pedido
+		var vencidos = jdbc.sql(COLUNAS + """
 				where prazo < :agora order by prazo limit 100 for update skip locked
 				""").param("agora", agora()).query(Pedido.class).list();
 		for (var p : vencidos) {
@@ -190,28 +214,23 @@ public class Saga {
 
 	@Transactional(readOnly = true)
 	public Optional<Pedido> buscar(UUID id) {
-		return jdbc.sql("""
-				select id, edicao_id, estado, motivo, preco_centavos, prazo, criado_em, atualizado_em
-				from pedido where id = :id
-				""").param("id", id).query(Pedido.class).optional();
+		return jdbc.sql(COLUNAS + "where id = :id").param("id", id).query(Pedido.class).optional();
 	}
 
 	@Transactional(readOnly = true)
 	public List<Pedido> pedidosDaEdicao(long edicaoId) {
-		return jdbc.sql("""
-				select id, edicao_id, estado, motivo, preco_centavos, prazo, criado_em, atualizado_em
-				from pedido where edicao_id = :edicao order by criado_em
-				""").param("edicao", edicaoId).query(Pedido.class).list();
+		return jdbc.sql(COLUNAS + "where edicao_id = :edicao order by criado_em").param("edicao", edicaoId).query(Pedido.class).list();
 	}
 
 	/**
-	 * Desfaz: a unidade volta ao estoque. A ordem na partição garante que o DevolverUnidade chega ao estoque depois
+	 * Desfaz: a unidade volta ao estoque, e o QR do Fiel sai do pedido (pagar agora só daria estorno). A ordem na
+	 * partição garante que o DevolverUnidade chega ao estoque depois
 	 * do ReservarUnidade, então mesmo uma reserva ainda não processada é desfeita.
 	 */
 	private void liberar(Pedido p, String motivo, boolean cancelarCobranca) {
 		jdbc.sql("""
-				update pedido set estado = 'LIBERANDO', motivo = :motivo, prazo = :prazo, atualizado_em = now()
-				where id = :id
+				update pedido set estado = 'LIBERANDO', motivo = :motivo, prazo = :prazo, atualizado_em = now(),
+				qr = null, link_para_pagar = null where id = :id
 				""").param("motivo", motivo).param("prazo", daquiA(prazoDaLiberacao)).param("id", p.id()).update();
 		if (cancelarCobranca) {
 			mandar(Topicos.PAGAMENTOS_COMANDOS, p.id(), CancelarCobranca.TIPO, CancelarCobranca.VERSAO,
@@ -238,10 +257,7 @@ public class Saga {
 	}
 
 	private Optional<Pedido> travar(UUID id) {
-		return jdbc.sql("""
-				select id, edicao_id, estado, motivo, preco_centavos, prazo, criado_em, atualizado_em
-				from pedido where id = :id for update
-				""").param("id", id).query(Pedido.class).optional();
+		return jdbc.sql(COLUNAS + "where id = :id for update").param("id", id).query(Pedido.class).optional();
 	}
 
 	private void mandar(String topico, UUID pedido, String tipo, int versao, Object dados) {

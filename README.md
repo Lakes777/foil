@@ -16,7 +16,7 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 | 2. Estoque | Cartas, edições, reserva atômica, devolução | feita |
 | 3. Eventos | Outbox, envelope, consumidores idempotentes, partição por pedido | feita |
 | 4. Saga | Máquina de estados, compensações, prazo de 5 min, fila de mortos | feita |
-| 5. Pagamento | Integração com o Fiel (cobrança, webhook) | |
+| 5. Pagamento | Compra pelo Fiel de verdade: cobrança, QR, aviso assinado, estorno | feita |
 | 6. Lançamento | 200 robôs contra 10 unidades, ao vivo | |
 | 7. Interface | Loja e painel de eventos | |
 | 8. Publicação | foil.andrelagos.dev | |
@@ -30,8 +30,8 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 | `comum` | Base dos três serviços: `GET /saude` (200 só com banco e Redpanda respondendo; 503 dizendo qual caiu), outbox, consumidor idempotente, tópicos e, nos testes, os contêineres |
 | `pedidos` | Orquestrador da saga: `POST /pedidos`, `GET /pedidos/{id}` (porta 8091) |
 | `estoque` | Cartas, edições, reserva e devolução; `GET /cartas`, `/cartas/{id}/edicoes`, `/edicoes/{id}` (porta 8092) |
-| `pagamentos` | Cobranças simuladas (o Fiel entra na fase 5), cancelamento e estorno (porta 8093) |
-| `ponta-a-ponta` | Teste com os três serviços como processos de verdade, derrubando um deles |
+| `pagamentos` | Cobranças simuladas (os robôs) e no Fiel (a compra manual), cancelamento e estorno; `POST /fiel/avisos` (porta 8093) |
+| `ponta-a-ponta` | Testes com os três serviços (e o Fiel) como processos de verdade, derrubando um deles |
 
 Cada serviço tem o próprio banco (`foil_pedidos`, `foil_estoque`, `foil_pagamentos`) e as próprias migrações Flyway.
 
@@ -122,6 +122,55 @@ esperando a sessão do consumidor morto vencer (padrão de 45 s). Com sessão de
 Contraprovas: aceitando "pagamento aprovado" em qualquer estado, um pedido cancelado volta a ser confirmado (dois
 testes da saga quebram); sem o `CancelarCobranca` no prazo, as cobranças atrasadas ficam aprovadas para sempre (o
 cenário 2 não termina); sem a trava da devolução, a reserva reprocessada prende a unidade.
+
+## Pagamento pelo Fiel
+
+A compra manual é cobrada no [Fiel](https://github.com/Lakes777/fiel), a carteira digital de mentira que fiz
+antes. Os robôs do lançamento (fase 6) continuam no pagamento simulado.
+
+```
+pedidos ──CobrarPedido{forma: FIEL}──> pagamentos ──POST /cobrancas (referência = id do pedido)──> Fiel
+pedidos <──CobrancaCriada{qr, link}──  pagamentos                                                   │
+                                                          o visitante paga o QR em fiel/pagar ──────┤
+pedidos <──PagamentoAprovado─────────  pagamentos <──aviso cobranca.paga (HMAC + carimbo de tempo)──┘
+```
+
+- **Quem fala com o Fiel não é o consumidor do Redpanda.** O consumidor só anota a cobrança (`pendente`,
+  `cancelando`, `estornando`); um trabalhador faz o pedido HTTP sem transação aberta e aplica a resposta
+  conferindo a situação de novo. Com o Fiel fora do ar, só as compras manuais esperam (com espera crescente); os
+  comandos dos robôs seguem.
+- **Nada duplica ao repetir:** a cobrança leva a referência (o id do pedido), que o Fiel trata como idempotente; o
+  estorno leva o id do pedido como `Idempotency-Key`; o aviso repetido cai no `evento_processado`.
+- **Aviso conferido:** HMAC-SHA256 sobre os bytes recebidos, comparado em tempo constante, e o carimbo de tempo a
+  no máximo 5 min (um aviso capturado e reenviado depois é recusado). Se o aviso se perder, a cobrança pendente é
+  conferida no Fiel a cada 15 s.
+- **Pagou depois que a saga desistiu:** o estorno é automático. Cancelar no Fiel e receber "já está paga", ou receber
+  o aviso de paga com a cobrança sendo cancelada, viram estorno; o dinheiro volta para o visitante.
+- **O Fiel recriado às 4h:** o Foil recadastra o endereço dos avisos na partida e às 4h05, guardando o segredo novo.
+- `CobrarPedido` ganhou a `forma` numa **v2**; a v1 ainda é aceita (como simulada), para um comando antigo na saída
+  não travar a partição depois da atualização.
+
+**O teste que importa** (`ponta-a-ponta/CompraPeloFielTest`) sobe o **jar do Fiel de verdade** com os três
+serviços. O visitante entra no Fiel pelo botão de visitante e paga o QR do pedido, como faria pelo navegador. O CI
+monta o jar a partir do `main` do Fiel, então uma mudança lá que quebre o contrato aparece aqui.
+
+| Cenário | Resultado exigido |
+|---|---|
+| Compra paga pelo QR | `CONFIRMADO`, o saldo do visitante cai o preço, a unidade sai do estoque |
+| Pagamentos derrubado com `kill -9`; o visitante paga mesmo assim; o prazo vence; pagamentos volta | `CANCELADO` (prazo do pagamento), **o dinheiro volta para o visitante** (estorno no Fiel) e a unidade volta ao estoque |
+| O Fiel recusa criar a cobrança (acima do limite dele) | `CANCELADO` (pagamento recusado), sem QR, unidade de volta |
+
+Os casos difíceis também têm teste em pagamentos, contra um Fiel de mentira que obedece ao mesmo contrato: aviso
+repetido três vezes aprova uma vez; assinatura errada, velha ou com o corpo mexido é 401; o Fiel que cria a cobrança
+e perde a resposta duas vezes continua com **uma** cobrança; o aviso que chega com o cancelamento esperando o Fiel
+voltar vira estorno; o segredo antigo para de valer no recadastro.
+
+Contraprovas: tratando o aviso de "paga" com a cobrança cancelando como uma aprovação comum, o pedido que a saga já
+desistiu recebe `PagamentoAprovado` e o dinheiro não volta (o teste do aviso depois do cancelamento quebra); sem
+conferir o carimbo de tempo, um aviso de 10 minutos atrás é aceito. Sem conferir a referência antes de cancelar (o id do Fiel recomeça
+do 1 quando ele é recriado às 4h), o cancelamento de um pedido antigo estorna o pagamento de um pedido novo que
+ganhou o mesmo id. No Fiel, sem o índice único da referência, as
+20 criações simultâneas viram **20 cobranças** para o mesmo pedido.
 
 ## Tecnologia
 

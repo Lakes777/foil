@@ -53,9 +53,10 @@ class ComandosDePagamentos {
 			return;
 		}
 		switch (comando.tipo()) {
-			case CobrarPedido.TIPO -> cobrar(comando, dados(comando, CobrarPedido.class, CobrarPedido.VERSAO));
+			case CobrarPedido.TIPO -> cobrar(comando,
+					dados(comando, CobrarPedido.class, CobrarPedido.VERSAO, CobrarPedido.VERSAO_ANTERIOR));
 			case CancelarCobranca.TIPO -> {
-				dados(comando, CancelarCobranca.class, CancelarCobranca.VERSAO);
+				dados(comando, CancelarCobranca.class, CancelarCobranca.VERSAO, CancelarCobranca.VERSAO);
 				cancelar(comando);
 			}
 			default -> throw new IllegalArgumentException("comando desconhecido: " + comando.tipo());
@@ -63,13 +64,15 @@ class ComandosDePagamentos {
 	}
 
 	private void cobrar(Envelope comando, CobrarPedido dados) {
-		switch (cobrancas.cobrar(comando.pedidoId(), dados.valorCentavos())) {
+		switch (cobrancas.cobrar(comando.pedidoId(), dados.valorCentavos(), dados.formaOuSimulada())) {
 			case APROVADA -> responder(comando, PagamentoAprovado.TIPO, PagamentoAprovado.VERSAO,
 					new PagamentoAprovado(dados.valorCentavos()));
 			case RECUSADA -> responder(comando, PagamentoRecusado.TIPO, PagamentoRecusado.VERSAO,
 					new PagamentoRecusado(PagamentoRecusado.Motivo.RECUSADO));
 			case JA_CANCELADA -> responder(comando, PagamentoRecusado.TIPO, PagamentoRecusado.VERSAO,
 					new PagamentoRecusado(PagamentoRecusado.Motivo.CANCELADA));
+			// Fiel: o CobrancaCriada (com o QR) e depois o PagamentoAprovado vêm do TrabalhoNoFiel e do aviso
+			case PENDENTE -> log.info("pagamentos: pedido {} espera o pagamento no Fiel", comando.pedidoId());
 		}
 	}
 
@@ -79,6 +82,8 @@ class ComandosDePagamentos {
 					new CobrancaCancelada());
 			case ESTORNADA -> responder(comando, PagamentoEstornado.TIPO, PagamentoEstornado.VERSAO,
 					new PagamentoEstornado(cobrancas.valor(comando.pedidoId()).orElse(0)));
+			// Fiel: a resposta sai quando o Fiel cancelar ou estornar (CobrancasNoFiel)
+			case EM_ANDAMENTO -> log.info("pagamentos: pedido {} cancelando no Fiel", comando.pedidoId());
 		}
 	}
 
@@ -87,10 +92,11 @@ class ComandosDePagamentos {
 				Envelope.novo(tipo, versao, comando.pedidoId(), json.valueToTree(dados), relogio));
 	}
 
-	private <T> T dados(Envelope comando, Class<T> tipo, int versao) {
-		if (comando.versao() != versao) {
-			throw new IllegalArgumentException(
-					"versão " + comando.versao() + " de " + comando.tipo() + " não suportada (espera " + versao + ")");
+	/** Aceita a versão atual e a anterior (§5 do SPEC: mudança de formato = versão nova). */
+	private <T> T dados(Envelope comando, Class<T> tipo, int versao, int anterior) {
+		if (comando.versao() != versao && comando.versao() != anterior) {
+			throw new IllegalArgumentException("versão " + comando.versao() + " de " + comando.tipo()
+					+ " não suportada (espera " + versao + " ou " + anterior + ")");
 		}
 		return json.treeToValue(comando.dados(), tipo);
 	}

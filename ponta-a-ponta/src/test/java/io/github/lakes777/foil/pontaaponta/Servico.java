@@ -15,7 +15,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/** Um serviço do Foil rodando como processo Java separado, a partir do -exec.jar que o Maven montou. */
+/**
+ * Um serviço rodando como processo Java separado: um do Foil, a partir do -exec.jar que o Maven montou, ou um jar de
+ * fora (o Fiel), com a porta na variável de ambiente dele.
+ */
 final class Servico {
 
 	private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
@@ -28,10 +31,22 @@ final class Servico {
 
 	private final int porta;
 
+	/** null = o -exec.jar do Foil com este nome. */
+	private final Path jarDeFora;
+
+	private final String variavelDaPorta;
+
 	private Process processo;
 
 	Servico(String nome, Map<String, String> ambiente, List<String> argumentos) throws IOException {
+		this(nome, null, "PORTA", ambiente, argumentos);
+	}
+
+	Servico(String nome, Path jarDeFora, String variavelDaPorta, Map<String, String> ambiente, List<String> argumentos)
+			throws IOException {
 		this.nome = nome;
+		this.jarDeFora = jarDeFora;
+		this.variavelDaPorta = variavelDaPorta;
 		this.ambiente = ambiente;
 		this.argumentos = argumentos;
 		try (var livre = new ServerSocket(0)) {
@@ -44,9 +59,15 @@ final class Servico {
 	}
 
 	void subir() throws Exception {
-		var jar = Path.of(System.getProperty("foil.jars"), nome, "target",
-				nome + "-" + System.getProperty("foil.versao") + "-exec.jar");
-		conferirQueOJarEstaEmDia(jar);
+		var jar = jarDeFora;
+		if (jar == null) {
+			jar = Path.of(System.getProperty("foil.jars"), nome, "target",
+					nome + "-" + System.getProperty("foil.versao") + "-exec.jar");
+			conferirQueOJarEstaEmDia(jar);
+		}
+		else if (!Files.exists(jar)) {
+			throw new IllegalStateException(jar + " não existe");
+		}
 		var java = ProcessHandle.current().info().command().orElse("java");
 		var comando = new ArrayList<>(List.of(java, "-Xmx256m", "-jar", jar.toString()));
 		comando.addAll(argumentos);
@@ -55,7 +76,7 @@ final class Servico {
 		var construtor = new ProcessBuilder(comando).redirectErrorStream(true)
 			.redirectOutput(ProcessBuilder.Redirect.appendTo(new File(logs.toFile(), nome + ".log")));
 		construtor.environment().putAll(ambiente);
-		construtor.environment().put("PORTA", String.valueOf(porta));
+		construtor.environment().put(variavelDaPorta, String.valueOf(porta));
 		processo = construtor.start();
 		// Se o Maven ou o teste morrerem no meio, a JVM do serviço não fica esquecida rodando
 		var esta = processo;

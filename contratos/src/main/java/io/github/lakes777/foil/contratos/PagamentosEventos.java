@@ -29,6 +29,18 @@ public final class PagamentosEventos {
 
 	}
 
+	/**
+	 * Só na forma {@code FIEL}: a cobrança existe no Fiel e espera o visitante pagar. O {@code qr} é o texto do QR;
+	 * {@code linkParaPagar} abre a tela de pagamento do Fiel com ele.
+	 */
+	public record CobrancaCriada(String qr, String linkParaPagar) {
+
+		public static final String TIPO = "CobrancaCriada";
+
+		public static final int VERSAO = 1;
+
+	}
+
 	/** Resposta ao CancelarCobranca quando não havia nada aprovado. */
 	public record CobrancaCancelada() {
 

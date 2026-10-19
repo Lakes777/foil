@@ -58,6 +58,10 @@
 		</dependency>
 	</dependencies>
 
+	<properties>
+		<fiel.jar></fiel.jar>
+	</properties>
+
 	<build>
 		<plugins>
 			<plugin>
@@ -68,6 +72,8 @@
 						<foil.jars>${project.basedir}/..</foil.jars>
 						<foil.versao>${project.version}</foil.versao>
 						<foil.logs>${project.build.directory}/logs</foil.logs>
+						<!-- O jar do Fiel para o CompraPeloFielTest (o CI monta do repositório do Fiel); vazio = pula -->
+						<fiel.jar>${fiel.jar}</fiel.jar>
 					</systemPropertyVariables>
 				</configuration>
 			</plugin>

@@ -23,6 +23,8 @@ import io.github.lakes777.foil.contratos.EstoqueEventos.ReservaRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeDevolvida;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeReservada;
 import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido;
+import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido.Forma;
+import io.github.lakes777.foil.contratos.PagamentosEventos.CobrancaCriada;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoAprovado;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoRecusado;
 import tools.jackson.databind.json.JsonMapper;
@@ -81,7 +83,7 @@ class SagaTest {
 
 	@Test
 	void criarNasceReservandoComOComandoNaSaida() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 
 		assertThat(p.estado()).isEqualTo(Estado.RESERVANDO);
 		assertThat(p.prazo()).isNotNull();
@@ -91,7 +93,7 @@ class SagaTest {
 
 	@Test
 	void caminhoFelizTerminaConfirmado() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 
 		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1500));
 		assertThat(pedido(p.id()).estado()).isEqualTo(Estado.AGUARDANDO_PAGAMENTO);
@@ -101,7 +103,7 @@ class SagaTest {
 			.query(String.class)
 			.single();
 		assertThat(json.treeToValue(json.readValue(cobrar, Envelope.class).dados(), CobrarPedido.class))
-			.isEqualTo(new CobrarPedido(1500));
+			.isEqualTo(new CobrarPedido(1500, Forma.SIMULADA));
 
 		chega(p.id(), PagamentoAprovado.TIPO, new PagamentoAprovado(1500));
 
@@ -113,8 +115,57 @@ class SagaTest {
 	}
 
 	@Test
+	void compraPeloFielGuardaOQrEConfirmaComOPagamento() {
+		var p = saga.criar(7, Forma.FIEL);
+		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1990));
+		var cobrar = jdbc.sql("select envelope from saida where chave = :c and topico = 'pagamentos.comandos'")
+			.param("c", p.id().toString())
+			.query(String.class)
+			.single();
+		var envelope = json.readValue(cobrar, Envelope.class);
+		assertThat(envelope.versao()).isEqualTo(CobrarPedido.VERSAO);
+		assertThat(json.treeToValue(envelope.dados(), CobrarPedido.class)).isEqualTo(new CobrarPedido(1990, Forma.FIEL));
+
+		chega(p.id(), CobrancaCriada.TIPO, new CobrancaCriada("QR-1", "https://fiel/pagar?qr=QR-1"));
+		var esperando = pedido(p.id());
+		assertThat(esperando.estado()).isEqualTo(Estado.AGUARDANDO_PAGAMENTO);
+		assertThat(esperando.qr()).isEqualTo("QR-1");
+		assertThat(esperando.linkParaPagar()).isEqualTo("https://fiel/pagar?qr=QR-1");
+
+		chega(p.id(), PagamentoAprovado.TIPO, new PagamentoAprovado(1990));
+		assertThat(pedido(p.id()).estado()).isEqualTo(Estado.CONFIRMADO);
+	}
+
+	@Test
+	void desistirTiraOQrDoPedido() {
+		var p = saga.criar(7, Forma.FIEL);
+		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1990));
+		chega(p.id(), CobrancaCriada.TIPO, new CobrancaCriada("QR-3", "https://fiel/pagar?qr=QR-3"));
+		relogio.avancar(Duration.ofMinutes(5).plusSeconds(1));
+
+		saga.vencerPrazos();
+
+		assertThat(pedido(p.id()).estado()).isEqualTo(Estado.LIBERANDO);
+		assertThat(pedido(p.id()).qr()).isNull();
+		assertThat(pedido(p.id()).linkParaPagar()).isNull();
+	}
+
+	@Test
+	void qrQueChegaDepoisDoPrazoNaoApareceNoPedido() {
+		var p = saga.criar(7, Forma.FIEL);
+		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1990));
+		relogio.avancar(Duration.ofMinutes(5).plusSeconds(1));
+		saga.vencerPrazos();
+
+		chega(p.id(), CobrancaCriada.TIPO, new CobrancaCriada("QR-2", "https://fiel/pagar?qr=QR-2"));
+
+		assertThat(pedido(p.id()).estado()).isEqualTo(Estado.LIBERANDO);
+		assertThat(pedido(p.id()).qr()).isNull();
+	}
+
+	@Test
 	void reservaRecusadaTerminaSemEstoque() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 
 		chega(p.id(), ReservaRecusada.TIPO, new ReservaRecusada(7, ReservaRecusada.Motivo.SEM_ESTOQUE));
 
@@ -125,7 +176,7 @@ class SagaTest {
 
 	@Test
 	void pagamentoRecusadoDevolveAUnidadeETerminaCancelado() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1000));
 
 		chega(p.id(), PagamentoRecusado.TIPO, new PagamentoRecusado(PagamentoRecusado.Motivo.RECUSADO));
@@ -142,7 +193,7 @@ class SagaTest {
 
 	@Test
 	void prazoDoPagamentoCancelaACobrancaEDevolveEAprovacaoAtrasadaEIgnorada() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1000));
 
 		relogio.avancar(Duration.ofMinutes(5).plusSeconds(1));
@@ -165,7 +216,7 @@ class SagaTest {
 
 	@Test
 	void prazoDaReservaDevolveSemCobrarEReservaAtrasadaEIgnorada() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 
 		relogio.avancar(Duration.ofMinutes(2).plusSeconds(1));
 		saga.vencerPrazos();
@@ -183,7 +234,7 @@ class SagaTest {
 
 	@Test
 	void liberandoSemRespostaReenviaADevolucaoAteFechar() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1000));
 		chega(p.id(), PagamentoRecusado.TIPO, new PagamentoRecusado(PagamentoRecusado.Motivo.RECUSADO));
 
@@ -209,7 +260,7 @@ class SagaTest {
 
 	@Test
 	void antesDoPrazoNadaVence() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 
 		relogio.avancar(Duration.ofMinutes(1));
 		saga.vencerPrazos();
@@ -219,7 +270,7 @@ class SagaTest {
 
 	@Test
 	void estadoFinalIgnoraQualquerEventoAtrasado() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 		chega(p.id(), ReservaRecusada.TIPO, new ReservaRecusada(7, ReservaRecusada.Motivo.SEM_ESTOQUE));
 
 		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1000));
@@ -232,7 +283,7 @@ class SagaTest {
 
 	@Test
 	void eventoDesconhecidoVaiParaOsMortosEPedidoDesconhecidoNaoFazNada() {
-		var p = saga.criar(7);
+		var p = saga.criar(7, Forma.SIMULADA);
 
 		assertThatThrownBy(() -> chega(p.id(), "Inventado", new Object())).isInstanceOf(IllegalArgumentException.class);
 		chega(UUID.randomUUID(), PagamentoAprovado.TIPO, new PagamentoAprovado(1000));

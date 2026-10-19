@@ -1,0 +1,41 @@
+# Desenvolvimento: Postgres e Redpanda para rodar os serviços no PC.
+#   docker compose up -d
+#   ./mvnw -pl estoque spring-boot:run -Dspring-boot.run.profiles=dev
+# Portas diferentes das de outros projetos (Postgres 5434, Kafka 19092, console 8090).
+services:
+  banco:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: foil
+      POSTGRES_PASSWORD: foil
+      POSTGRES_DB: foil
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - ./dev/criar-bancos.sql:/docker-entrypoint-initdb.d/criar-bancos.sql:ro
+      - banco:/var/lib/postgresql/data
+
+  redpanda:
+    image: redpandadata/redpanda:v26.2.5
+    command:
+      - redpanda
+      - start
+      - --mode=dev-container
+      - --smp=1
+      - --memory=512M
+      - --kafka-addr=interno://0.0.0.0:9092,externo://0.0.0.0:19092
+      - --advertise-kafka-addr=interno://redpanda:9092,externo://localhost:19092
+    ports:
+      - "127.0.0.1:19092:19092"
+
+  console:
+    image: redpandadata/console:v3.12.0
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "127.0.0.1:8090:8080"
+    depends_on:
+      - redpanda
+
+volumes:
+  banco:

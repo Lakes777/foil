@@ -56,8 +56,14 @@ O que o projeto precisa provar (para o recrutador e na entrevista):
 | Observabilidade | OpenTelemetry, Prometheus, Grafana (público, só leitura), Jaeger (P29) |
 | Deploy | Docker (imagens ARM montadas no PC), Caddy do Beacon, `/publicar-vm` |
 
-Módulos: `contratos` (envelope e eventos, usado pelos três), `pedidos`, `estoque`, `pagamentos`, `web`,
-`deploy/`.
+Módulos: `contratos` (envelope e eventos, usado pelos três), `comum`, `pedidos`, `estoque`, `pagamentos`,
+`web`, `deploy/`.
+
+> 19/10/2026 (fase 1): entrou o módulo `comum`, com o que os três serviços têm igual (dependências de web,
+> banco e Kafka, o `GET /saude` e, num test-jar, os contêineres dos testes), para não copiar o mesmo
+> código três vezes. Regra: o `comum` não guarda regra de negócio; o que é de um serviço fica no serviço.
+> Também na fase 1: Spring Boot 4.1.1, Redpanda v26.2.5 e a tabela `evento_processado` (P12) criada pela
+> V1 de cada serviço. O WSL agora tem 8 GB (pente instalado em 19/10), mas a regra de um módulo por vez fica.
 
 ## 5. Arquitetura
 

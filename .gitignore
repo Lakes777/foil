@@ -1,0 +1,19 @@
+### Segredos (a VM usa .env; nunca no repositório público) ###
+.env
+*.env
+
+target/
+.mvn/wrapper/maven-wrapper.jar
+
+### IDEs ###
+.idea
+*.iml
+.vscode/
+.classpath
+.project
+.settings
+.factorypath
+
+### Interface (fase 7) ###
+node_modules/
+dist/

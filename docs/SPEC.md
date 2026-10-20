@@ -33,7 +33,7 @@ O que o projeto precisa provar (para o recrutador e na entrevista):
 - **Custo zero.** Roda na VM ARM da Oracle (1 núcleo, ~4,3 GB livres em 18/10), junto com Beacon,
   Pursuit, Cadence e Fiel.
 - **Memória (P21):** cada serviço Spring com teto de ~300 MB (`-Xmx` na faixa do Fiel), Redpanda com
-  512 MB e 1 núcleo, interface com Caddy ~32 MB. Observabilidade (fase 9) ~400 MB a mais. Folga mínima
+  512 MB e 1 núcleo (20/10/2026, fase 8: `--memory=384M` num contêiner de 640 MB; serviços com 448 MB e `-Xmx256m`), interface com Caddy ~32 MB. Observabilidade (fase 9) ~400 MB a mais. Folga mínima
   de 1 GB na VM depois de tudo.
 - **Desenvolvimento no WSL com 3,8 GB:** suítes rodam um serviço por vez; vitest com `--maxWorkers=2`;
   Gradle/Maven sem daemon persistente quando possível.
@@ -261,8 +261,9 @@ na saída, na mesma transação. Decisões da fase 4:
 > - **Contratos:** `CobrarPedido` v2 `{valorCentavos, forma}` com `forma` `SIMULADA` ou `FIEL`: a primeira v2 do
 >   projeto, então a regra "aceita a atual e a anterior" começou aqui (v1 vale como `SIMULADA`). Evento novo
 >   `CobrancaCriada {qr, linkParaPagar}` (v1), que a saga guarda no pedido sem mudar de estado. `POST /pedidos` sem
->   `forma` é `FIEL` (a compra da loja); os robôs da fase 6 usam `SIMULADA`. **Fase 8:** decidir se o
->   `POST /pedidos` público continua aceitando `SIMULADA`.
+>   `forma` é `FIEL` (a compra da loja); os robôs da fase 6 usam `SIMULADA`. **Decidido na fase 8 (20/10/2026):** o
+>   `POST /pedidos` público recusa `SIMULADA` com 400 (`foil.pedidos.aceita-simulada=false`; só os testes ligam), senão
+>   um curl levava gemas sem pagar. Os robôs não passam pelo HTTP.
 > - **Quem fala com o Fiel é o `TrabalhoNoFiel`, fora do consumidor do Redpanda:** o consumidor só anota a cobrança
 >   (`pendente`, `cancelando`, `estornando`, V5 de pagamentos), e o trabalhador faz o pedido HTTP sem transação
 >   aberta, com espera crescente até 60 s. Com o Fiel fora do ar, só as compras manuais esperam; os comandos dos

@@ -1,0 +1,63 @@
+# Site do Foil no Caddy do Beacon (copiado para ~/beacon/sites/ pelo publicar.sh). DOMINIO_FOIL é trocado pelo
+# endereço na publicação. O Caddy pega o certificado HTTPS sozinho.
+#
+# Só passa o que a interface usa (lista fechada): /api/pedidos/* e /api/estoque/* vão para os serviços sem o
+# prefixo (como o proxy do Vite em dev). O resto da API (a fila de mortos e o botão de reprocessar, o /saude e
+# qualquer rota nova) não sai da VM. /fiel/avisos é o aviso assinado do Fiel, para pagamentos.
+DOMINIO_FOIL {
+	# Caminho com ";", "%" ou um segmento "." / "..": o Caddy limpa o caminho para comparar, mas o Tomcat recebe o
+	# original e o interpreta do jeito dele; algo como /api/pedidos/lancamentos/;/../mortos passaria pela lista e
+	# chegaria em /mortos. A interface nunca manda nada assim
+	@estranho {
+		path /api/* /fiel/*
+		expression {http.request.orig_uri.path}.matches('[;%]|/\\.\\.?(/|$)')
+	}
+	handle @estranho {
+		respond 400
+	}
+	# Sem "encode" aqui: comprimir seguraria o painel ao vivo (/eventos). As telas já vêm comprimidas.
+	@pedidos path /api/pedidos/pedidos /api/pedidos/pedidos/* /api/pedidos/minhas /api/pedidos/lancamentos /api/pedidos/lancamentos/* /api/pedidos/eventos
+	handle @pedidos {
+		uri strip_prefix /api/pedidos
+		# O painel é um fluxo de eventos (SSE): cada mensagem sai na hora, sem esperar encher um buffer
+		reverse_proxy foil-pedidos:8091 {
+			flush_interval -1
+		}
+	}
+	@estoque {
+		path /api/estoque/cartas /api/estoque/cartas/* /api/estoque/vitrine /api/estoque/edicoes/*
+		method GET
+	}
+	handle @estoque {
+		uri strip_prefix /api/estoque
+		reverse_proxy foil-estoque:8092
+	}
+	# O aviso do Fiel: pagamentos recusa acima de 64 KB, e o Caddy nem deixa chegar
+	@avisos {
+		path /fiel/avisos
+		method POST
+	}
+	handle @avisos {
+		request_body {
+			max_size 64KB
+		}
+		reverse_proxy foil-pagamentos:8093
+	}
+	handle /api/* {
+		respond 404
+	}
+	handle /fiel/* {
+		respond 404
+	}
+	handle {
+		reverse_proxy foil-web:80
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Tudo do próprio endereço: nenhum script ou estilo inline
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+}

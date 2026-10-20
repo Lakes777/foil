@@ -248,6 +248,23 @@ Uma função por aba, cada uma com endereço próprio (`#vitrine`, `#lancamento`
   edição de quem ainda não tem. Os testes do estoque rodam sem ela, com as próprias cartas.
 - A identidade ("joalheria à noite") saiu de um protótipo com 5 versões: [docs/prototipo-fase-7.html](docs/prototipo-fase-7.html).
 
+## No ar
+
+Na mesma VM ARM da Oracle (1 núcleo) que o Fiel e os outros projetos, atrás do Caddy dela (`deploy/`).
+
+- **Imagens montadas no PC** para ARM (`deploy/publicar.sh`), uma por serviço a partir do `*-exec.jar`, mais as telas
+  num Caddy mínimo. Cada serviço com 448 MB e heap de 256 MB; o Redpanda com 384 MB e um núcleo.
+- **Duas redes:** o Redpanda (sem senha) fica numa rede só do Foil; os serviços entram também na rede do Caddy e do
+  Postgres com apelidos `foil-*`. Três bancos no Postgres compartilhado, cada um com usuário próprio, dono só do seu.
+- **O Caddy só deixa passar o que a interface usa** (lista fechada): a fila de mortos, o botão de reprocessar e o
+  `/saude` não saem da VM, e caminho com `;`, `%` ou `..` é recusado antes da lista.
+- **Compra pelo HTTP só pelo Fiel:** o pagamento simulado é dos robôs; aceitar `SIMULADA` no `POST /pedidos` público
+  deixaria um curl levar gemas sem pagar.
+- **Limpeza às 4h10:** saída publicada, ids de eventos e respostas a comandos repetidos saem em 4 dias; vendas,
+  compras do visitante, edições dos lançamentos e mortos em 30. Os tópicos guardam no máximo 3 dias (retenção de 2 +
+  segmento de 1: o Redpanda só apaga segmento fechado, e o padrão fecha em 14 dias), porque um id de evento apagado
+  antes da mensagem sair do tópico deixaria um consumidor que relê aplicar o efeito duas vezes.
+
 ## Tecnologia
 
 Java 21 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · JUnit 5 ·

@@ -1,0 +1,129 @@
+# Produção na VM ARM da Oracle, a mesma do Beacon, do Pursuit, do Cadence e do Fiel. Só a demonstração.
+# Os bancos ficam no Postgres do Beacon (foil_pedidos, foil_estoque, foil_pagamentos, cada um com usuário
+# próprio e dono só do seu, criados pelo preparar-vm.sh); o Caddy do Beacon fica na frente (~/beacon/sites/foil.caddy).
+#
+# Duas redes: a "foil" só tem o Redpanda e os três serviços (o Kafka não tem senha, então nenhum outro projeto da
+# VM o alcança); a "beacon" é a do Caddy e do Postgres, onde cada serviço tem um apelido único foil-*.
+#
+# As senhas e a chave do Fiel vêm do .env da VM (criado pelo preparar-vm.sh) por interpolação: cada contêiner
+# recebe só a dele, e não o arquivo inteiro.
+name: foil
+
+x-logs: &logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-servico: &servico
+  restart: unless-stopped
+  mem_limit: 448m
+  logging: *logs
+  depends_on:
+    redpanda:
+      condition: service_healthy
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v26.2.5
+    restart: unless-stopped
+    # Um núcleo e memória contida: a VM é pequena e divide tudo com os outros sites
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=384M
+      - --reserve-memory=0M
+      - --check=false
+      - --default-log-level=warn
+      - --kafka-addr=0.0.0.0:9092
+      - --advertise-kafka-addr=foil-redpanda:9092
+    volumes:
+      - redpanda:/var/lib/redpanda/data
+    mem_limit: 640m
+    logging: *logs
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    networks:
+      foil:
+        aliases: [foil-redpanda]
+
+  pedidos:
+    <<: *servico
+    image: foil-pedidos:latest
+    environment:
+      PORTA: "8091"
+      FOIL_BANCO_URL: jdbc:postgresql://beacon-banco:5432/foil_pedidos
+      FOIL_BANCO_USUARIO: foil_pedidos
+      FOIL_BANCO_SENHA: ${FOIL_SENHA_PEDIDOS:?falta no .env}
+      FOIL_KAFKA: foil-redpanda:9092
+      # O IP de quem chamou vem do X-Forwarded-For só quando o pedido chega do Caddy (a rede beacon_interna);
+      # sem isso, todo mundo seria "o IP do Caddy" e dividiria o mesmo limite
+      FOIL_CABECALHOS_DO_PROXY: native
+      FOIL_PROXIES_CONFIAVEIS: ${FOIL_PROXIES_CONFIAVEIS:?falta no .env}
+    networks:
+      foil: {}
+      beacon:
+        aliases: [foil-pedidos]
+
+  estoque:
+    <<: *servico
+    image: foil-estoque:latest
+    environment:
+      PORTA: "8092"
+      FOIL_BANCO_URL: jdbc:postgresql://beacon-banco:5432/foil_estoque
+      FOIL_BANCO_USUARIO: foil_estoque
+      FOIL_BANCO_SENHA: ${FOIL_SENHA_ESTOQUE:?falta no .env}
+      FOIL_KAFKA: foil-redpanda:9092
+    networks:
+      foil: {}
+      beacon:
+        aliases: [foil-estoque]
+
+  pagamentos:
+    <<: *servico
+    image: foil-pagamentos:latest
+    environment:
+      PORTA: "8093"
+      FOIL_BANCO_URL: jdbc:postgresql://beacon-banco:5432/foil_pagamentos
+      FOIL_BANCO_USUARIO: foil_pagamentos
+      FOIL_BANCO_SENHA: ${FOIL_SENHA_PAGAMENTOS:?falta no .env}
+      FOIL_KAFKA: foil-redpanda:9092
+      # A API do Fiel por dentro da rede; os avisos pelo endereço público, porque o Fiel só entrega em https://
+      # fora da rede interna (proteção contra SSRF dele). Sem a chave, a compra pela loja é recusada na hora
+      FOIL_FIEL_API: http://fiel-api:8080
+      FOIL_FIEL_CHAVE: ${FOIL_FIEL_CHAVE:-}
+      FOIL_FIEL_WEBHOOK: https://${DOMINIO:?falta no .env}/fiel/avisos
+    networks:
+      foil: {}
+      beacon:
+        aliases: [foil-pagamentos]
+
+  web:
+    image: foil-web:latest
+    restart: unless-stopped
+    mem_limit: 32m
+    logging: *logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      beacon:
+        aliases: [foil-web]
+
+volumes:
+  redpanda:
+
+networks:
+  foil:
+    name: foil_interna
+  beacon:
+    external: true
+    name: beacon_interna

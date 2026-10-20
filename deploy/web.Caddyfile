@@ -1,0 +1,23 @@
+# Serve as telas (o build do Vite). Endereços da tela caem no index.html, e o
+# React decide o que mostrar. HTTPS, cabeçalhos de segurança e o /api ficam no Caddy da VM.
+{
+	admin off
+	auto_https off
+}
+
+:80 {
+	root * /srv
+	encode gzip
+	# Os arquivos de /assets têm o hash no nome: mudam de nome a cada versão, podem ficar em cache.
+	# Um que não existe (uma aba aberta pedindo o de uma versão antiga) é 404, não o index.html
+	handle /assets/* {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+	# O resto: rotas da tela caem no index.html, que nunca fica em cache (sempre a versão nova)
+	handle {
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

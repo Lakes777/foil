@@ -1,0 +1,10 @@
+# Só o que a montagem das imagens precisa (deploy/publicar.sh)
+.git
+.claude
+**/target
+web/node_modules
+web/dist
+dev/logs
+dev/.pids
+# Segredos nunca entram no build (um web/.env.local iria parar no JavaScript público)
+**/.env*

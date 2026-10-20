@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 import javax.sql.DataSource;
 
@@ -51,6 +52,8 @@ public class SaudeController {
 
 	private final Map<String, Object> configKafka;
 
+	private final ReentrantLock trava = new ReentrantLock();
+
 	private Saude ultima;
 
 	private long ultimaEm;
@@ -77,12 +80,23 @@ public class SaudeController {
 			.body(corpo);
 	}
 
-	synchronized Saude atual() {
-		if (ultima == null || System.nanoTime() - ultimaEm > VALIDADE.toNanos()) {
-			ultima = conferir();
-			ultimaEm = System.nanoTime();
+	/**
+	 * Um por vez, com trava e não {@code synchronized} (20/10/2026, achado na primeira publicação): no Java 21, a
+	 * thread virtual que espera dentro de um synchronized prende o carregador dela. Com um processador (a VM) só há um
+	 * carregador, então as duas conferências em paralelo nunca começavam e o /saude esperava para sempre.
+	 */
+	Saude atual() {
+		trava.lock();
+		try {
+			if (ultima == null || System.nanoTime() - ultimaEm > VALIDADE.toNanos()) {
+				ultima = conferir();
+				ultimaEm = System.nanoTime();
+			}
+			return ultima;
 		}
-		return ultima;
+		finally {
+			trava.unlock();
+		}
 	}
 
 	private Saude conferir() {

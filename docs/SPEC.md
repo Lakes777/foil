@@ -35,6 +35,12 @@ O que o projeto precisa provar (para o recrutador e na entrevista):
 - **Memória (P21):** cada serviço Spring com teto de ~300 MB (`-Xmx` na faixa do Fiel), Redpanda com
   512 MB e 1 núcleo (20/10/2026, fase 8: `--memory=384M` num contêiner de 640 MB; serviços com 448 MB e `-Xmx256m`), interface com Caddy ~32 MB. Observabilidade (fase 9) ~400 MB a mais. Folga mínima
   de 1 GB na VM depois de tudo.
+- **Um processador e threads virtuais (20/10/2026, achado na 1ª publicação):** no Java 21, a thread virtual que espera
+  dentro de um `synchronized` prende o carregador; na VM a JVM via 1 processador = 1 carregador, e o `/saude`
+  (synchronized esperando as duas conferências em paralelo) travava para sempre. Corrigido com `ReentrantLock` no
+  `/saude` e no painel, `Carregadores.garantir()` no `main` (no mínimo 4, para um `synchronized` de biblioteca não parar
+  o serviço) e o `ponta-a-ponta` subindo as JVMs com `-XX:ActiveProcessorCount=1` (sem a correção, trava). Saída
+  definitiva: Java 25 (JEP 491, o synchronized deixa de prender), a decidir.
 - **Desenvolvimento no WSL com 3,8 GB:** suítes rodam um serviço por vez; vitest com `--maxWorkers=2`;
   Gradle/Maven sem daemon persistente quando possível.
 - **Rede compartilhada `beacon_interna`:** todo serviço com apelido único `foil-*` (nunca depender do nome

@@ -7,6 +7,7 @@ import java.util.Properties;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -64,6 +65,9 @@ class PainelAoVivo {
 
 	private final List<Visitante> visitantes = new CopyOnWriteArrayList<>();
 
+	/** Conferir os tetos e entrar é uma coisa só (dois ao mesmo tempo não passam do teto juntos). */
+	private final ReentrantLock entrada = new ReentrantLock();
+
 	private volatile boolean ligado = true;
 
 	private volatile Consumer<?, ?> consumidor;
@@ -81,8 +85,22 @@ class PainelAoVivo {
 		this.duracaoMaxima = duracaoMaxima;
 	}
 
-	/** Um visitante novo. Passou do teto por IP = 429; do teto geral = 503. */
-	synchronized SseEmitter conectar(String ip) throws IOException {
+	/**
+	 * Um visitante novo. Passou do teto por IP = 429; do teto geral = 503. Com trava e não synchronized: o primeiro
+	 * send() pode esperar a rede, e no Java 21 uma thread virtual esperando dentro de um synchronized prende o
+	 * carregador (com um processador, o único; ver SaudeController).
+	 */
+	SseEmitter conectar(String ip) throws IOException {
+		entrada.lock();
+		try {
+			return conectarComATrava(ip);
+		}
+		finally {
+			entrada.unlock();
+		}
+	}
+
+	private SseEmitter conectarComATrava(String ip) throws IOException {
 		if (visitantes.stream().filter(v -> v.ip().equals(ip)).count() >= conexoesPorIp) {
 			throw new MuitasTentativas(30);
 		}

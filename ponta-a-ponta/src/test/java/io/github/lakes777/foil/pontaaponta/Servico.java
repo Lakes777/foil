@@ -69,7 +69,9 @@ final class Servico {
 			throw new IllegalStateException(jar + " não existe");
 		}
 		var java = ProcessHandle.current().info().command().orElse("java");
-		var comando = new ArrayList<>(List.of(java, "-Xmx256m", "-jar", jar.toString()));
+		// Um processador, como a VM (20/10/2026): com mais núcleos, uma thread virtual presa num synchronized não trava
+		// as outras, e o deadlock do /saude da primeira publicação passou por todos os testes
+		var comando = new ArrayList<>(List.of(java, "-Xmx256m", "-XX:ActiveProcessorCount=1", "-jar", jar.toString()));
 		comando.addAll(argumentos);
 		var logs = Path.of(System.getProperty("foil.logs"));
 		Files.createDirectories(logs);

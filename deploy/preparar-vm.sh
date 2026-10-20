@@ -60,10 +60,11 @@ ENV
 fi
 
 # A mesma chave no Fiel: sem ela, a Loja Foil não existe e toda compra pela loja é recusada. Só um Fiel com a
-# chave de integração e a V9 (d48b252 ou depois) sabe o que fazer com ela
+# chave de integração e a V9 (d48b252 ou depois) sabe o que fazer com ela. Os comandos do Docker daqui em diante leem
+# de /dev/null: este script chega pela entrada padrão (bash -s), e um "exec" que a lesse engoliria o resto dele
 revisao=$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' fiel:latest)
 if ! (cd ~/beacon && docker compose exec -T banco psql -U beacon -d fiel_demo -tAc \
-	"select 1 from flyway_schema_history where version = '9' and success") | grep -q 1; then
+	"select 1 from flyway_schema_history where version = '9' and success" </dev/null) | grep -q 1; then
 	echo "O Fiel no ar ($revisao) ainda não tem a V9: publique o Fiel d48b252 ou mais novo antes (/publicar-vm fiel)." >&2
 	exit 1
 fi
@@ -76,7 +77,7 @@ else
 	sed -i '/^FIEL_INTEGRACAO_CHAVE=/d' ~/fiel/.env
 	(umask 077; printf 'FIEL_INTEGRACAO_CHAVE=%s\n' "$nova" >> ~/fiel/.env)
 	# Recria só a API do Fiel (lê o .env de novo); a Loja Foil nasce na partida
-	(cd ~/fiel && docker compose up -d api)
+	(cd ~/fiel && docker compose up -d api </dev/null)
 	for _ in $(seq 1 40); do
 		[ "$(docker inspect -f '{{.State.Health.Status}}' fiel-api-1)" = healthy ] && break
 		sleep 3

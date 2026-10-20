@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido.Forma;
+import jakarta.servlet.http.HttpServletRequest;
 
 /** Criar e acompanhar pedidos. A resposta do POST é 202: o resto da saga acontece por eventos. */
 @RestController
@@ -18,8 +19,11 @@ class PedidosController {
 
 	private final Saga saga;
 
-	PedidosController(Saga saga) {
+	private final LimitesPorIp limites;
+
+	PedidosController(Saga saga, LimitesPorIp limites) {
 		this.saga = saga;
+		this.limites = limites;
 	}
 
 	/** Sem {@code forma}, é FIEL: quem compra pela loja paga pelo QR. SIMULADA é a dos robôs (e dos testes). */
@@ -27,10 +31,11 @@ class PedidosController {
 	}
 
 	@PostMapping("/pedidos")
-	ResponseEntity<Pedido> criar(@RequestBody NovoPedido novo) {
+	ResponseEntity<Pedido> criar(@RequestBody NovoPedido novo, HttpServletRequest pedido) {
 		if (novo.edicaoId() <= 0) {
 			return ResponseEntity.badRequest().build();
 		}
+		limites.pedidos.registrar(LimitePorJanela.chaveDoIp(pedido.getRemoteAddr()));
 		var forma = novo.forma() == null ? Forma.FIEL : novo.forma();
 		return ResponseEntity.status(HttpStatus.ACCEPTED).body(saga.criar(novo.edicaoId(), forma));
 	}

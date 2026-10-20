@@ -12,6 +12,18 @@ public final class PedidosEventos {
 
 	}
 
+	/**
+	 * Fase 6: cada passo de um lançamento (o envelope leva o id do lançamento). {@code edicaoId} só existe depois que o
+	 * estoque abriu a edição; os pedidos dos robôs saem como {@link PedidoMudouDeEstado} dessa edição.
+	 */
+	public record LancamentoMudouDeEstado(String estado, String motivo, Long edicaoId, int robos, int soltos) {
+
+		public static final String TIPO = "LancamentoMudouDeEstado";
+
+		public static final int VERSAO = 1;
+
+	}
+
 	private PedidosEventos() {
 	}
 

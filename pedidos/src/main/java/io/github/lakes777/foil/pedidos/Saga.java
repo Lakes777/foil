@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,7 +47,7 @@ public class Saga {
 
 	private static final String COLUNAS = """
 			select id, edicao_id, estado, motivo, preco_centavos, prazo, criado_em, atualizado_em, forma, qr,
-			link_para_pagar from pedido
+			link_para_pagar, lancamento_id from pedido
 			""";
 
 	private final JdbcClient jdbc;
@@ -82,14 +83,22 @@ public class Saga {
 	 */
 	@Transactional
 	public Pedido criar(long edicaoId, Forma forma) {
+		return criar(edicaoId, forma, null);
+	}
+
+	/** Um pedido de robô leva o id do lançamento (fase 6); o da loja, null. */
+	@Transactional
+	public Pedido criar(long edicaoId, Forma forma, UUID lancamentoId) {
 		var id = UUID.randomUUID();
 		jdbc.sql("""
-				insert into pedido (id, edicao_id, estado, prazo, forma) values (:id, :edicao, 'RESERVANDO', :prazo, :forma)
+				insert into pedido (id, edicao_id, estado, prazo, forma, lancamento_id)
+				values (:id, :edicao, 'RESERVANDO', :prazo, :forma, :lancamento)
 				""")
 			.param("id", id)
 			.param("edicao", edicaoId)
 			.param("forma", forma.name())
 			.param("prazo", daquiA(prazoDaReserva))
+			.param("lancamento", lancamentoId)
 			.update();
 		mandar(Topicos.ESTOQUE_COMANDOS, id, ReservarUnidade.TIPO, ReservarUnidade.VERSAO, new ReservarUnidade(edicaoId));
 		contar(id, Estado.RESERVANDO, null, edicaoId);
@@ -275,8 +284,9 @@ public class Saga {
 		return agora().plus(prazo);
 	}
 
+	/** Cortado em microssegundos, como em {@link Lancamentos}: o que vai para o banco é o que volta dele. */
 	private OffsetDateTime agora() {
-		return OffsetDateTime.now(relogio).withOffsetSameInstant(ZoneOffset.UTC);
+		return OffsetDateTime.now(relogio).withOffsetSameInstant(ZoneOffset.UTC).truncatedTo(ChronoUnit.MICROS);
 	}
 
 	private <T> T dados(Envelope evento, Class<T> tipo, int versao) {

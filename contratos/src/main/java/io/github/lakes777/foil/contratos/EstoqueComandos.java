@@ -25,6 +25,19 @@ public final class EstoqueComandos {
 
 	}
 
+	/**
+	 * Fase 6: abre a edição de um lançamento. O envelope leva o id do <b>lançamento</b> no lugar do pedido (é só a
+	 * chave de partição). Quem escolhe a carta é o estoque (uma rara ou lendária), então quem pede não escolhe nada.
+	 * Repetir com o mesmo lançamento devolve a mesma edição.
+	 */
+	public record AbrirEdicao(int unidades) {
+
+		public static final String TIPO = "AbrirEdicao";
+
+		public static final int VERSAO = 1;
+
+	}
+
 	private EstoqueComandos() {
 	}
 

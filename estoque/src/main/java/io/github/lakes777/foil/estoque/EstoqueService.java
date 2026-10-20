@@ -143,6 +143,39 @@ public class EstoqueService {
 			.single();
 	}
 
+	/**
+	 * A edição do lançamento (fase 6). O estoque escolhe a carta: entre as raras e lendárias, a que teve menos
+	 * edições (empate: a mais antiga), para os lançamentos irem passando pelas cartas. Vazio = não há carta rara.
+	 * O mesmo lançamento de novo devolve a edição que já abriu.
+	 */
+	@Transactional
+	public Optional<Edicao> abrirEdicaoDoLancamento(UUID lancamentoId, int unidades) {
+		var jaAberta = edicaoDoLancamento(lancamentoId);
+		if (jaAberta.isPresent()) {
+			return jaAberta;
+		}
+		var carta = jdbc.sql("""
+				select c.id from carta c where c.raridade in ('rara', 'lendaria')
+				order by (select count(*) from edicao e where e.carta_id = c.id), c.id limit 1
+				""").query(Long.class).optional();
+		if (carta.isEmpty()) {
+			return Optional.empty();
+		}
+		var edicao = novaEdicao(carta.get(), unidades);
+		jdbc.sql("update edicao set lancamento_id = :lancamento where id = :id")
+			.param("lancamento", lancamentoId)
+			.param("id", edicao.id())
+			.update();
+		return Optional.of(edicao);
+	}
+
+	private Optional<Edicao> edicaoDoLancamento(UUID lancamentoId) {
+		return jdbc.sql("""
+				select id, carta_id, numero, total, disponivel, preco_centavos, criada_em from edicao
+				where lancamento_id = :lancamento
+				""").param("lancamento", lancamentoId).query(Edicao.class).optional();
+	}
+
 	@Transactional(readOnly = true)
 	public List<Carta> cartas() {
 		return jdbc.sql("select id, nome, raridade, descricao from carta order by id").query(Carta.class).list();

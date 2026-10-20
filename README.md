@@ -17,7 +17,7 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 | 3. Eventos | Outbox, envelope, consumidores idempotentes, partição por pedido | feita |
 | 4. Saga | Máquina de estados, compensações, prazo de 5 min, fila de mortos | feita |
 | 5. Pagamento | Compra pelo Fiel de verdade: cobrança, QR, aviso assinado, estorno | feita |
-| 6. Lançamento | 200 robôs contra 10 unidades, ao vivo | |
+| 6. Lançamento | 200 robôs contra 10 unidades, fila, limite por IP, ao vivo por SSE | feita |
 | 7. Interface | Loja e painel de eventos | |
 | 8. Publicação | foil.andrelagos.dev | |
 | 9. Observabilidade | OpenTelemetry, Prometheus, Grafana, Jaeger | |
@@ -28,7 +28,7 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 |---|---|
 | `contratos` | Envelope dos eventos (`id`, `tipo`, `versao`, `ocorridoEm`, `pedidoId`, `dados`), tópicos e os comandos/eventos de cada serviço |
 | `comum` | Base dos três serviços: `GET /saude` (200 só com banco e Redpanda respondendo; 503 dizendo qual caiu), outbox, consumidor idempotente, tópicos e, nos testes, os contêineres |
-| `pedidos` | Orquestrador da saga: `POST /pedidos`, `GET /pedidos/{id}` (porta 8091) |
+| `pedidos` | Orquestrador da saga e dos lançamentos: `POST /pedidos`, `GET /pedidos/{id}`, `POST /lancamentos`, `GET /lancamentos`, `GET /eventos` (SSE) (porta 8091) |
 | `estoque` | Cartas, edições, reserva e devolução; `GET /cartas`, `/cartas/{id}/edicoes`, `/edicoes/{id}` (porta 8092) |
 | `pagamentos` | Cobranças simuladas (os robôs) e no Fiel (a compra manual), cancelamento e estorno; `POST /fiel/avisos` (porta 8093) |
 | `ponta-a-ponta` | Testes com os três serviços (e o Fiel) como processos de verdade, derrubando um deles |
@@ -172,6 +172,56 @@ do 1 quando ele é recriado às 4h), o cancelamento de um pedido antigo estorna 
 ganhou o mesmo id. No Fiel, sem o índice único da referência, as
 20 criações simultâneas viram **20 cobranças** para o mesmo pedido.
 
+## O lançamento
+
+O botão "Simular lançamento" abre uma edição nova de uma carta rara com **10 unidades** e solta **200 robôs**
+comprando ao mesmo tempo. Cada robô é um pedido comum da saga, com o pagamento simulado recusando ~20%.
+
+```
+POST /lancamentos ─> NA_FILA ──vez dele──> ABRINDO ──EdicaoAberta──> SOLTANDO ──200 soltos──> ESPERANDO ──sagas no fim──> ENCERRADO
+                                             │ AbrirEdicao (estoque)      10 robôs/s
+                                             └──EdicaoRecusada──> FALHOU
+```
+
+- **Um lançamento por vez no site inteiro**, com fila visível (no máximo 5 esperando; o sexto recebe 503 com
+  `Retry-After`). Quem garante é um índice único parcial no banco, não o código: dois lançamentos andando ao mesmo
+  tempo viram erro do Postgres, não uma corrida.
+- **Ritmo pelo relógio:** os robôs devidos são contados desde o começo (10 por segundo), não por rodada, e saem no
+  máximo 50 de uma vez; uma pausa longa não vira rajada. Robôs e contador são gravados na mesma transação, então uma
+  queda no meio continua de onde parou, sem robô a mais nem a menos.
+- **Limite por IP:** 1 lançamento e 10 compras por minuto (IPv6 conta pelo /64), 429 com `Retry-After`. O IP do
+  `X-Forwarded-For` só vale quando o pedido vem do proxy confiável; de fora, o cabeçalho é ignorado.
+- **Ao vivo por SSE** (`GET /eventos`): lê o tópico `pedidos.eventos` sem grupo de consumidor, então cada instância vê
+  tudo. Cada visitante tem uma fila própria: quem lê devagar é desconectado em vez de segurar os outros. Teto de 100
+  conexões e 5 por IP.
+
+**O teste que importa** (`ponta-a-ponta/LancamentoTest`) sobe os três serviços como processos e pede dois lançamentos
+ao mesmo tempo. Resultado de uma rodada:
+
+| Lançamento | Vendidos | Sem estoque | Desfeitos (pagamento recusado) | Presos |
+|---|---|---|---|---|
+| 1º | **10** | 189 | 1 | 0 |
+| 2º (esperou na fila) | **10** | 186 | 4 | 0 |
+
+As unidades dos pagamentos recusados voltam ao estoque a tempo dos robôs que chegam depois, por isso as 10 sempre
+vendem. Os três bancos contam a mesma história: 10 pagamentos aprovados, 10 reservas e a edição zerada. O segundo
+lançamento só começa depois que o primeiro termina, numa edição própria.
+
+Dois detalhes que só os testes acharam: o Postgres guarda o horário em microssegundos e **arredonda** os
+nanossegundos, então o começo gravado ficava até 1 µs depois do relógio e o primeiro segundo soltava 10 robôs em vez
+de 11 (o horário agora é cortado antes de gravar). E o servidor só percebe que um visitante do SSE saiu na **segunda**
+escrita depois do fechamento (a primeira cabe no buffer do sistema), por isso o "ainda aqui" a cada 15 s.
+
+O "um por vez" também tem teste direto no banco: gravar um segundo lançamento andando, como faria um bug que pulasse a
+fila, é recusado pelo índice.
+
+Contraprovas: sem a trava da fila no `avancar()`, 8 rodadas ao mesmo tempo (como duas instâncias) chamam o próximo
+juntas e uma delas leva erro do índice único. No painel, um visitante que conecta e **nunca lê** enche o TCP; se o
+desconectar fosse feito na thread que lê o Kafka, ela ficaria esperando a escrita presa dele e o painel pararia para
+todo mundo por mais de 60 s. Com o fechamento à parte, as 3000 mensagens chegam ao outro visitante e a chamada mais
+lenta leva milissegundos. Um estoque que nunca responde recebe o `AbrirEdicao` 5 vezes e o lançamento termina em
+`FALHOU` (`ESTOQUE_SEM_RESPOSTA`), sem parar a fila.
+
 ## Tecnologia
 
 Java 21 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · JUnit 5 ·
@@ -187,5 +237,5 @@ Precisa de Java 21 e Docker.
 docker compose up -d               # Postgres (5434), Redpanda (19092) e o console do Redpanda (8090)
 ./mvnw install -DskipTests
 ./mvnw -pl estoque spring-boot:run -Dspring-boot.run.profiles=dev
-curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"5"}
+curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"6"}
 ```

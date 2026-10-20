@@ -184,6 +184,57 @@ na saída, na mesma transação. Decisões da fase 4:
 - **Pagamento dos robôs (P10):** simulado dentro do serviço de pagamentos, com falhas sorteadas (para
   exercitar a compensação). Só a compra manual passa pelo Fiel.
 
+> 19/10/2026 (fase 6): decisões tomadas ao fazer.
+>
+> - **Quem faz o quê:** o lançamento mora em pedidos (tabela `lancamento`, V6), que já é o orquestrador. A edição é
+>   aberta pelo estoque com um comando novo, `AbrirEdicao {unidades}`, pela saída como os outros (nada de HTTP entre os
+>   serviços). As respostas são `EdicaoAberta {edicaoId, cartaId, unidades, precoCentavos}` e `EdicaoRecusada {motivo}`
+>   (`SEM_CARTA_RARA`, `UNIDADES_INVALIDAS`). Nesses três, o `pedidoId` do envelope leva o **id do lançamento** (é só a
+>   chave de partição); o mesmo vale para o evento novo `LancamentoMudouDeEstado {estado, motivo, edicaoId, robos,
+>   soltos}` em `pedidos.eventos`.
+> - **A carta é do estoque:** entre as raras e lendárias, a que teve menos edições (empate: a mais antiga). O
+>   `POST /lancamentos` não leva corpo nenhum: quem aperta o botão só escolhe a hora. `edicao.lancamento_id` é único, então
+>   o `AbrirEdicao` repetido devolve a mesma edição.
+> - **Estados:** `NA_FILA → ABRINDO → SOLTANDO → ESPERANDO → ENCERRADO`, ou `FALHOU` (edição recusada). `ABRINDO` vencido
+>   (1 min) reenvia o `AbrirEdicao` (20/10/2026, achado do revisor: no máximo 5 envios, coluna `aberturas`; depois disso
+>   `FALHOU` com `motivo = ESTOQUE_SEM_RESPOSTA`, senão um `EdicaoAberta` que sempre cai na fila de mortos pararia a fila
+>   para sempre); `ESPERANDO` termina quando nenhum pedido dos robôs está num estado intermediário, ou
+>   pelo prazo de 10 min (`motivo = PRAZO`): as sagas que faltam terminam pelos próprios prazos, e a fila não para por elas.
+> - **Um por vez:** um índice único parcial no banco (`where estado in ('ABRINDO','SOLTANDO','ESPERANDO')`) faz de "dois
+>   lançamentos andando" um erro, não uma condição de corrida (teste com contraprova). (20/10/2026: `avancar()` também
+>   pega a trava consultiva da fila, como o `pedir()`; com duas instâncias, as duas chamavam o próximo juntas e uma
+>   levava erro do índice. Contraprova: 8 rodadas simultâneas sem a trava dão `DuplicateKeyException`.) Fila de no máximo 5 esperando;
+>   o sexto recebe 503 com `Retry-After: 60` e não gasta o minuto do visitante.
+> - **Robôs e ritmo:** uma agenda a cada 100 ms solta os robôs devidos pelo relógio (10 por segundo desde o começo, e não
+>   por rodada; no máximo 50 numa rodada, então o atraso de uma parada longa volta aos poucos). Cada robô é um pedido
+>   comum da saga com `forma = SIMULADA` e `pedido.lancamento_id`; os robôs e o contador `soltos` são gravados na mesma
+>   transação, então uma queda no meio continua de onde parou. 200 robôs = ~20 s; as unidades devolvidas por pagamento
+>   recusado voltam a tempo para os robôs que chegam depois, por isso o lançamento vende as 10. (20/10/2026: os
+>   horários do lançamento são cortados em microssegundos antes de gravar; o driver do Postgres arredonda os
+>   nanossegundos e o começo gravado podia ficar depois do relógio, soltando um robô a menos.)
+> - **Limites por IP (na memória, como no Fiel):** 1 lançamento por minuto e 10 compras (`POST /pedidos`) por minuto;
+>   IPv6 conta pelo /64; 429 com `Retry-After`. O IP vem do `X-Forwarded-For` só quando o pedido chega de um proxy
+>   confiável: **fase 8:** `FOIL_CABECALHOS_DO_PROXY=native` e `FOIL_PROXIES_CONFIAVEIS` = a rede do Caddy, como no Fiel.
+> - **SSE (`GET /eventos`, em pedidos):** lê `pedidos.eventos` sem grupo de consumidor (`assign` a partir do fim), então
+>   cada instância vê tudo e não guarda posição. Cada mensagem: `event` = tipo, `data` = envelope inteiro. Cada visitante
+>   tem fila própria (1000 mensagens) e uma thread virtual: quem lê devagar é desconectado em vez de segurar os outros.
+>   (20/10/2026, achado do revisor: o `complete()` desse desconectado roda numa thread à parte. Ele espera a mesma trava
+>   do `send()`, e o escritor de quem parou de ler fica preso no `send()`; chamado da thread do Kafka, parava o painel
+>   de todo mundo. Contraprova: com o `complete()` direto, o teste do visitante que não lê trava por mais de 60 s.)
+>   Teto de 100 conexões (503) e 5 por IP (429); conexão vence em 30 min (o EventSource reconecta); comentário a cada
+>   15 s (20/10/2026: configurável em `foil.painel.manter-vivo`; quem saiu só aparece na segunda escrita depois de
+>   fechar, então a vaga volta em até duas voltas). O retrato do momento vem do `GET /lancamentos` (o da vez, a fila e os 3 últimos). **Fase 8:** o Caddy precisa
+>   de `flush_interval -1` no `/eventos`.
+> - **Fase 8, conferir (revisor, 20/10/2026):** (1) se o Caddy estiver na rede do Docker e `FOIL_PROXIES_CONFIAVEIS`
+>   não cobrir esse IP, todo mundo vira "o IP do Caddy": 1 lançamento e 10 compras por minuto no site inteiro e o 6º
+>   visitante do painel com 429. Conferir na `/publicar-vm` (ou avisar no log ao subir quando o `remoteAddr` é privado).
+>   (2) O limite por IP não tem teto de chaves (só faxina por minuto); quem tem um /48 de IPv6 cria até 65 mil entradas
+>   por minuto. Poucos MB, risco baixo; um teto (ex.: 100 mil) se a VM apertar. (3) O painel não vê partições novas
+>   criadas depois de ligar (o tópico tem as partições fixas).
+> - **Riscos aceitos (fase 8 decide):** o limite de compras é por IP; quem tem muitos IPs ainda prende unidades por até
+>   5 min sem pagar. A compra pelo Fiel passa pelo limite de cobranças por minuto da Loja Foil no Fiel (30): um pico de
+>   compras manuais vira `PagamentoRecusado`.
+
 ## 7. Integração com o Fiel (P5, P9, P17, P18)
 
 - **No Fiel (fase 5, commit no repositório do Fiel):** chave de integração por variável de ambiente

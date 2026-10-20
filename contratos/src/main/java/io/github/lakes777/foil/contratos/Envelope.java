@@ -11,8 +11,9 @@ import tools.jackson.databind.JsonNode;
  * Envelope comum a todo evento e comando que passa pelo Redpanda.
  *
  * <p>O {@code id} identifica o evento (é o que os consumidores guardam para ignorar repetidos) e o
- * {@code pedidoId} é a chave de partição, para que tudo de um mesmo pedido chegue em ordem. Mudar o
- * formato de {@code dados} exige uma {@code versao} nova.
+ * {@code pedidoId} é a chave de partição, para que tudo de um mesmo pedido chegue em ordem. Nos comandos e eventos
+ * de um lançamento (fase 6), ele leva o id do lançamento. Mudar o formato de {@code dados} exige uma {@code versao}
+ * nova.
  */
 public record Envelope(UUID id, String tipo, int versao, Instant ocorridoEm, UUID pedidoId, JsonNode dados) {
 

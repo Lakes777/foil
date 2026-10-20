@@ -14,12 +14,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.redpanda.RedpandaContainer;
 
 import io.github.lakes777.foil.comum.LeitorDeTopico;
 import io.github.lakes777.foil.contratos.Envelope;
+import io.github.lakes777.foil.contratos.EstoqueComandos.AbrirEdicao;
 import io.github.lakes777.foil.contratos.EstoqueComandos.DevolverUnidade;
 import io.github.lakes777.foil.contratos.EstoqueComandos.ReservarUnidade;
+import io.github.lakes777.foil.contratos.EstoqueEventos.EdicaoAberta;
+import io.github.lakes777.foil.contratos.EstoqueEventos.EdicaoRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.ReservaRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeDevolvida;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeReservada;
@@ -46,6 +50,9 @@ class ComandosDoEstoqueTest {
 
 	@Autowired
 	RedpandaContainer redpanda;
+
+	@Autowired
+	TransactionTemplate transacao;
 
 	private LeitorDeTopico eventos;
 
@@ -185,6 +192,69 @@ class ComandosDoEstoqueTest {
 		assertThat(json.treeToValue(lidas.get(2).dados(), ReservaRecusada.class).motivo())
 			.isEqualTo(ReservaRecusada.Motivo.JA_DEVOLVIDA);
 		assertThat(disponivel(edicao)).isEqualTo(2);
+	}
+
+	private Envelope abrirEdicao(UUID lancamento, int unidades) {
+		return Envelope.novo(AbrirEdicao.TIPO, AbrirEdicao.VERSAO, lancamento,
+				json.valueToTree(new AbrirEdicao(unidades)), Clock.systemUTC());
+	}
+
+	@Test
+	void abrirEdicaoDoLancamentoUsaUmaCartaRaraERepetirDevolveAMesma() throws Exception {
+		estoque.criarCarta("Carta " + UUID.randomUUID(), "lendaria", "");
+		var lancamento = UUID.randomUUID();
+
+		enviar(abrirEdicao(lancamento, 10));
+		// Reenvio depois do prazo: outro id de evento, mesmo lançamento
+		enviar(abrirEdicao(lancamento, 10));
+
+		var lidas = respostas(lancamento, 2);
+		assertThat(lidas).extracting(Envelope::tipo).containsExactly(EdicaoAberta.TIPO, EdicaoAberta.TIPO);
+		var primeira = json.treeToValue(lidas.get(0).dados(), EdicaoAberta.class);
+		assertThat(json.treeToValue(lidas.get(1).dados(), EdicaoAberta.class)).isEqualTo(primeira);
+		assertThat(primeira.unidades()).isEqualTo(10);
+		var edicao = estoque.buscarEdicao(primeira.edicaoId()).orElseThrow();
+		assertThat(edicao.disponivel()).isEqualTo(10);
+		assertThat(edicao.cartaId()).isEqualTo(primeira.cartaId());
+		assertThat(jdbc.sql("select raridade from carta where id = :id")
+			.param("id", primeira.cartaId())
+			.query(String.class)
+			.single()).isIn("rara", "lendaria");
+		assertThat(jdbc.sql("select count(*) from edicao where lancamento_id = :l")
+			.param("l", lancamento)
+			.query(Integer.class)
+			.single()).isEqualTo(1);
+	}
+
+	@Test
+	void abrirEdicaoSemUnidadesERecusado() throws Exception {
+		var lancamento = UUID.randomUUID();
+
+		enviar(abrirEdicao(lancamento, 0));
+
+		var resposta = respostas(lancamento, 1);
+		assertThat(resposta).extracting(Envelope::tipo).containsExactly(EdicaoRecusada.TIPO);
+		assertThat(json.treeToValue(resposta.getFirst().dados(), EdicaoRecusada.class).motivo())
+			.isEqualTo(EdicaoRecusada.Motivo.UNIDADES_INVALIDAS);
+	}
+
+	/** Mexe no catálogo inteiro, então roda numa transação desfeita no fim (os outros testes dividem o banco). */
+	@Test
+	void lancamentoEscolheARaraComMenosEdicoesEHSemRaraNaoAbre() {
+		transacao.executeWithoutResult(t -> {
+			t.setRollbackOnly();
+			jdbc.sql("update carta set raridade = 'comum'").update();
+			assertThat(estoque.abrirEdicaoDoLancamento(UUID.randomUUID(), 10)).isEmpty();
+
+			var jaLancada = estoque.criarCarta("Carta " + UUID.randomUUID(), "rara", "");
+			estoque.novaEdicao(jaLancada.id(), 5);
+			var nova = estoque.criarCarta("Carta " + UUID.randomUUID(), "lendaria", "");
+			var edicao = estoque.abrirEdicaoDoLancamento(UUID.randomUUID(), 10).orElseThrow();
+			assertThat(edicao.cartaId()).isEqualTo(nova.id());
+			// Agora as duas têm uma edição: empate, vai a mais antiga
+			assertThat(estoque.abrirEdicaoDoLancamento(UUID.randomUUID(), 10).orElseThrow().cartaId())
+				.isEqualTo(jaLancada.id());
+		});
 	}
 
 }

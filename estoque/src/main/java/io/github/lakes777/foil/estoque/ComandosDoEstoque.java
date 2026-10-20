@@ -11,8 +11,11 @@ import org.springframework.transaction.annotation.Transactional;
 import io.github.lakes777.foil.comum.eventos.EventosProcessados;
 import io.github.lakes777.foil.comum.eventos.Saida;
 import io.github.lakes777.foil.contratos.Envelope;
+import io.github.lakes777.foil.contratos.EstoqueComandos.AbrirEdicao;
 import io.github.lakes777.foil.contratos.EstoqueComandos.DevolverUnidade;
 import io.github.lakes777.foil.contratos.EstoqueComandos.ReservarUnidade;
+import io.github.lakes777.foil.contratos.EstoqueEventos.EdicaoAberta;
+import io.github.lakes777.foil.contratos.EstoqueEventos.EdicaoRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.ReservaRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeDevolvida;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeReservada;
@@ -60,6 +63,7 @@ class ComandosDoEstoque {
 		switch (comando.tipo()) {
 			case ReservarUnidade.TIPO -> reservar(comando, dados(comando, ReservarUnidade.class, ReservarUnidade.VERSAO));
 			case DevolverUnidade.TIPO -> devolver(comando, dados(comando, DevolverUnidade.class, DevolverUnidade.VERSAO));
+			case AbrirEdicao.TIPO -> abrirEdicao(comando, dados(comando, AbrirEdicao.class, AbrirEdicao.VERSAO));
 			// A fila de mortos (fase 4) recebe o que cair aqui
 			default -> throw new IllegalArgumentException("comando desconhecido: " + comando.tipo());
 		}
@@ -81,6 +85,21 @@ class ComandosDoEstoque {
 	private void devolver(Envelope comando, DevolverUnidade dados) {
 		var agora = estoque.devolver(comando.pedidoId(), dados.edicaoId()) == ResultadoDaDevolucao.DEVOLVIDA;
 		responder(comando, UnidadeDevolvida.TIPO, UnidadeDevolvida.VERSAO, new UnidadeDevolvida(agora));
+	}
+
+	/** O {@code pedidoId} do envelope aqui é o id do lançamento. */
+	private void abrirEdicao(Envelope comando, AbrirEdicao dados) {
+		if (dados.unidades() < 1) {
+			responder(comando, EdicaoRecusada.TIPO, EdicaoRecusada.VERSAO,
+					new EdicaoRecusada(EdicaoRecusada.Motivo.UNIDADES_INVALIDAS));
+			return;
+		}
+		estoque.abrirEdicaoDoLancamento(comando.pedidoId(), dados.unidades())
+			.ifPresentOrElse(
+					e -> responder(comando, EdicaoAberta.TIPO, EdicaoAberta.VERSAO,
+							new EdicaoAberta(e.id(), e.cartaId(), e.total(), e.precoCentavos())),
+					() -> responder(comando, EdicaoRecusada.TIPO, EdicaoRecusada.VERSAO,
+							new EdicaoRecusada(EdicaoRecusada.Motivo.SEM_CARTA_RARA)));
 	}
 
 	private void recusar(Envelope comando, long edicao, ReservaRecusada.Motivo motivo) {

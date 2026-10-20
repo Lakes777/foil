@@ -44,6 +44,34 @@ public final class EstoqueEventos {
 
 	}
 
+	/** A edição do lançamento do envelope existe (também na repetição do mesmo lançamento). */
+	public record EdicaoAberta(long edicaoId, long cartaId, int unidades, int precoCentavos) {
+
+		public static final String TIPO = "EdicaoAberta";
+
+		public static final int VERSAO = 1;
+
+	}
+
+	/** Não deu para abrir a edição do lançamento; ele termina sem robôs. */
+	public record EdicaoRecusada(Motivo motivo) {
+
+		public static final String TIPO = "EdicaoRecusada";
+
+		public static final int VERSAO = 1;
+
+		public enum Motivo {
+
+			/** O catálogo não tem carta rara nem lendária. */
+			SEM_CARTA_RARA,
+
+			/** Pediram menos de uma unidade. */
+			UNIDADES_INVALIDAS
+
+		}
+
+	}
+
 	private EstoqueEventos() {
 	}
 

@@ -7,7 +7,10 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
+import io.github.lakes777.foil.contratos.EstoqueComandos.AbrirEdicao;
 import io.github.lakes777.foil.contratos.EstoqueComandos.ReservarUnidade;
+import io.github.lakes777.foil.contratos.EstoqueEventos.EdicaoAberta;
+import io.github.lakes777.foil.contratos.EstoqueEventos.EdicaoRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.ReservaRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeDevolvida;
 import tools.jackson.databind.json.JsonMapper;
@@ -40,6 +43,17 @@ class EstoqueContratosTest {
 		var lido = json.readValue(json.writeValueAsString(envelope), Envelope.class);
 
 		assertThat(json.treeToValue(lido.dados(), UnidadeDevolvida.class)).isEqualTo(new UnidadeDevolvida(true));
+	}
+
+	@Test
+	void abrirEdicaoEAsRespostasNoFio() {
+		assertThat(json.valueToTree(new AbrirEdicao(10)).toString()).isEqualTo("{\"unidades\":10}");
+		var aberta = json.valueToTree(new EdicaoAberta(3, 2, 10, 1000));
+		assertThat(aberta.toString())
+			.isEqualTo("{\"edicaoId\":3,\"cartaId\":2,\"unidades\":10,\"precoCentavos\":1000}");
+		assertThat(json.treeToValue(aberta, EdicaoAberta.class)).isEqualTo(new EdicaoAberta(3, 2, 10, 1000));
+		assertThat(json.valueToTree(new EdicaoRecusada(EdicaoRecusada.Motivo.SEM_CARTA_RARA)).toString())
+			.isEqualTo("{\"motivo\":\"SEM_CARTA_RARA\"}");
 	}
 
 }

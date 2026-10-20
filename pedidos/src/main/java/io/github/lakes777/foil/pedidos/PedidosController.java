@@ -36,10 +36,18 @@ class PedidosController {
 
 	private final boolean cookieSeguro;
 
-	PedidosController(Saga saga, LimitesPorIp limites, @Value("${foil.cookie.seguro:true}") boolean cookieSeguro) {
+	private final boolean aceitaSimulada;
+
+	/**
+	 * {@code foil.pedidos.aceita-simulada} fica desligado em produção (decidido na fase 8, 20/10/2026): com ele, um
+	 * curl comprava gemas sem pagar (o simulado aprova por sorteio). Os robôs não passam por aqui; os testes ligam.
+	 */
+	PedidosController(Saga saga, LimitesPorIp limites, @Value("${foil.cookie.seguro:true}") boolean cookieSeguro,
+			@Value("${foil.pedidos.aceita-simulada:false}") boolean aceitaSimulada) {
 		this.saga = saga;
 		this.limites = limites;
 		this.cookieSeguro = cookieSeguro;
+		this.aceitaSimulada = aceitaSimulada;
 	}
 
 	/** Valor que não é um UUID (velho, mexido) vale como "sem cookie": o visitante ganha um novo. */
@@ -59,11 +67,11 @@ class PedidosController {
 	@PostMapping("/pedidos")
 	ResponseEntity<Pedido> criar(@RequestBody NovoPedido novo, HttpServletRequest pedido,
 			@CookieValue(name = COOKIE, required = false) String cookie) {
-		if (novo.edicaoId() <= 0) {
+		var forma = novo.forma() == null ? Forma.FIEL : novo.forma();
+		if (novo.edicaoId() <= 0 || (forma == Forma.SIMULADA && !aceitaSimulada)) {
 			return ResponseEntity.badRequest().build();
 		}
 		limites.pedidos.registrar(LimitePorJanela.chaveDoIp(pedido.getRemoteAddr()));
-		var forma = novo.forma() == null ? Forma.FIEL : novo.forma();
 		var conhecido = visitante(cookie);
 		var quem = conhecido.orElseGet(UUID::randomUUID);
 		var resposta = ResponseEntity.status(HttpStatus.ACCEPTED);

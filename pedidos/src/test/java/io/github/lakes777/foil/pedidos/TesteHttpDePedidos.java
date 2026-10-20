@@ -13,14 +13,15 @@ import io.github.lakes777.foil.comum.ConteineresDeTeste;
 /**
  * O serviço inteiro numa porta sorteada, como atrás do Caddy: o teste é o proxy confiável (127.0.0.1) e escolhe o IP
  * de cada visitante pelo X-Forwarded-For. A agenda dos lançamentos fica parada (o teste chama a vez quando quer) e o
- * "ainda aqui" do painel sai a cada 1 s, para a vaga de quem saiu voltar logo.
+ * "ainda aqui" do painel sai a cada 1 s, para a vaga de quem saiu voltar logo. A compra SIMULADA pelo HTTP (desligada
+ * em produção) fica ligada: os testes compram sem o Fiel.
  * Mesma configuração em todos os testes HTTP, para o Spring reaproveitar o contexto (e os contêineres).
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = { "server.forward-headers-strategy=native", "foil.lancamento.automatico=false",
-				"foil.painel.manter-vivo=1s" })
+				"foil.painel.manter-vivo=1s", "foil.pedidos.aceita-simulada=true" })
 @Import(ConteineresDeTeste.class)
 @interface TesteHttpDePedidos {
 

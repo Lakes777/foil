@@ -115,7 +115,7 @@ class DerrubarPagamentosTest {
 						"--foil.pedidos.prazo-do-pagamento=" + PRAZO.toSeconds() + "s",
 						"--foil.consumo.espera-maxima-ms=2000", "--foil.pagamentos.simulado.taxa-de-aprovacao=0.8",
 						// Todas as compras saem do mesmo IP (o do teste)
-						"--foil.limite.pedidos-por-minuto=1000"));
+						"--foil.limite.pedidos-por-minuto=1000", "--foil.pedidos.aceita-simulada=true"));
 	}
 
 	static JdbcClient banco(String nome) {

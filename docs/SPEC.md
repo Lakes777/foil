@@ -334,6 +334,33 @@ na saída, na mesma transação. Decisões da fase 4:
 >   **fase 8**, o Caddy faz o mesmo (`handle_path`). O `web/` é React + TS + Vite com Vitest; o CI ganha um job dele.
 - Limpeza diária às 4h10: pedidos, edições e eventos antigos.
 
+> 20/10/2026 (fase 8): a limpeza, decidida ao fazer. `Limpeza` no `comum` (agendada às 4h10 de Brasília, apaga em
+> lotes de 5000, cada lote numa transação) + uma `Limpeza.Regras` por serviço. Dois prazos:
+> - **Eventos: 4 dias** (`foil.limpeza.dias-dos-eventos`). Os tópicos passam a ter `retention.ms` de 2 dias e
+>   `segment.ms` de 1 dia: a retenção só apaga segmento fechado, e o padrão do Redpanda fecha em 14 dias (revisor,
+>   conferido num Redpanda v26.2.5: sem isso, uma mensagem ficaria ~17 dias). Máximo no tópico = 3 dias. O id em
+>   `evento_processado` precisa durar mais que isso: um consumidor que perde a posição (offset do grupo vence em 7
+>   dias) recomeça do início e só não aplica duas vezes se o id ainda estiver lá. O mesmo vale para as linhas que
+>   respondem a comando repetido (reserva recusada/devolvida, cobrança terminada, inclusive a cancelada que trava o
+>   `CobrarPedido` atrasado). O `comum` recusa subir com 3 dias ou menos. `spring.kafka.admin.modify-topic-configs=true`
+>   acerta também os tópicos que já existem (dev e VM).
+> - **Mortos x travas (revisor):** a reserva devolvida e a cobrança cancelada são as travas contra um comando
+>   reprocessado da fila de mortos. Elas ficam enquanto existir um morto do pedido (`morto.chave` = id do pedido), e
+>   o `POST /mortos/{id}/reprocessar` recusa (410) morto com mais de 30 − 3 − 1 = 26 dias: a mensagem devolvida ainda
+>   pode ser lida por 3 dias, e o morto (com ele, as travas) sai aos 30.
+> - **Compras: 30 dias** (`foil.limpeza.dias-das-compras`): pedidos confirmados e os do visitante ("Minhas gemas"),
+>   edições dos lançamentos (só sem reserva nesse prazo; as do catálogo ficam sempre) e mortos.
+> - O que sai em cada um: `saida` publicada há mais de 1 dia (a não publicada nunca); pedidos recusados/cancelados
+>   dos **robôs** em 4 dias, o resto dos terminados em 30; lançamento terminado sem pedidos, menos os **3 últimos**
+>   (o `GET /lancamentos` mostra); pedido em andamento e cobrança esperando o Fiel nunca.
+> - **Por que os confirmados dos robôs ficam 30 dias:** a unidade de uma venda nova é `max(unidade) + 1` da edição;
+>   apagar a maior de uma edição ainda à venda faria um certificado novo repetir o número de um antigo. Risco aceito:
+>   se todas as vendas de uma edição saírem e ela ainda estiver à venda, a numeração recomeça (a edição de lançamento
+>   sai junto em 30 dias sem reserva; a do catálogo pode recomeçar).
+> - Edições dos lançamentos com um dia de folga (o pedido sai pela confirmação, que vem depois da reserva).
+> - Testes com as datas empurradas para o passado (os de pedidos numa transação desfeita); contraprovas: apagar o
+>   confirmado dos robôs cedo e tirar a proteção dos 3 últimos reprovam os testes.
+
 ## 9. Fases e critérios de aceite
 
 Cada fase: testes verdes no CI, revisor antes do commit, contraprovas nas regras importantes,

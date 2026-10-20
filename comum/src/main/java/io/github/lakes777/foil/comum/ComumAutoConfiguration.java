@@ -1,11 +1,14 @@
 package io.github.lakes777.foil.comum;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.stream.Stream;
 
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.config.TopicConfig;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
@@ -23,6 +26,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import io.github.lakes777.foil.comum.eventos.AgendaDaSaida;
 import io.github.lakes777.foil.comum.eventos.ErrosDoConsumidor;
 import io.github.lakes777.foil.comum.eventos.EventosProcessados;
+import io.github.lakes777.foil.comum.eventos.Limpeza;
 import io.github.lakes777.foil.comum.eventos.Mortos;
 import io.github.lakes777.foil.comum.eventos.PublicadorDaSaida;
 import io.github.lakes777.foil.comum.eventos.Saida;
@@ -51,14 +55,31 @@ public class ComumAutoConfiguration {
 
 	/**
 	 * Os tópicos e as filas de mortos, com {@link Topicos#PARTICOES} partições (a fila de mortos usa a mesma
-	 * partição da origem). Criar de novo um que já existe não faz nada.
+	 * partição da origem). Cada um guarda as mensagens por no máximo {@link Limpeza#DIAS_NO_TOPICO} dias, menos do que a
+	 * limpeza guarda os ids dos eventos processados. Num tópico que já existe, só a configuração é acertada
+	 * ({@code spring.kafka.admin.modify-topic-configs=true} nos serviços).
 	 */
 	@Bean
 	KafkaAdmin.NewTopics topicos() {
+		var retencao = String.valueOf(Duration.ofDays(Limpeza.DIAS_DE_RETENCAO).toMillis());
+		var segmento = String.valueOf(Duration.ofDays(Limpeza.DIAS_DO_SEGMENTO).toMillis());
 		return new KafkaAdmin.NewTopics(Topicos.TODOS.stream()
 			.flatMap(nome -> Stream.of(nome, nome + Topicos.MORTOS))
-			.map(nome -> TopicBuilder.name(nome).partitions(Topicos.PARTICOES).replicas(1).build())
+			.map(nome -> TopicBuilder.name(nome)
+				.partitions(Topicos.PARTICOES)
+				.replicas(1)
+				.config(TopicConfig.RETENTION_MS_CONFIG, retencao)
+				.config(TopicConfig.SEGMENT_MS_CONFIG, segmento)
+				.build())
 			.toArray(NewTopic[]::new));
+	}
+
+	/** A limpeza das 4h10, com as tabelas que cada serviço acrescenta ({@link Limpeza.Regras}). */
+	@Bean
+	Limpeza limpeza(JdbcClient jdbc, ObjectProvider<Limpeza.Regras> regras,
+			@Value("${foil.limpeza.dias-dos-eventos:4}") int diasDosEventos,
+			@Value("${foil.limpeza.dias-das-compras:30}") int diasDasCompras) {
+		return new Limpeza(jdbc, regras.orderedStream().toList(), diasDosEventos, diasDasCompras);
 	}
 
 	/** Boot liga este tratador ao container dos listeners. Esperas configuráveis para os testes. */
@@ -72,8 +93,9 @@ public class ComumAutoConfiguration {
 	/** Só nos serviços que dizem quais filas de mortos ler ({@code foil.mortos.topicos}). */
 	@Bean
 	@ConditionalOnProperty("foil.mortos.topicos")
-	Mortos mortos(JdbcClient jdbc, KafkaTemplate<String, String> kafka) {
-		return new Mortos(jdbc, kafka);
+	Mortos mortos(JdbcClient jdbc, KafkaTemplate<String, String> kafka,
+			@Value("${foil.limpeza.dias-das-compras:30}") int diasDasCompras) {
+		return new Mortos(jdbc, kafka, Limpeza.diasParaReprocessar(diasDasCompras));
 	}
 
 	/**

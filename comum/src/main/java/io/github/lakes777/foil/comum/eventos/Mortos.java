@@ -1,6 +1,7 @@
 package io.github.lakes777.foil.comum.eventos;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -32,9 +33,12 @@ public class Mortos {
 
 	private final KafkaTemplate<String, String> kafka;
 
-	public Mortos(JdbcClient jdbc, KafkaTemplate<String, String> kafka) {
+	private final int diasParaReprocessar;
+
+	public Mortos(JdbcClient jdbc, KafkaTemplate<String, String> kafka, int diasParaReprocessar) {
 		this.jdbc = jdbc;
 		this.kafka = kafka;
+		this.diasParaReprocessar = diasParaReprocessar;
 	}
 
 	public record Morto(UUID id, String topico, String chave, String mensagem, String erro, Instant mortoEm,
@@ -72,13 +76,15 @@ public class Mortos {
 
 	public enum Reprocesso {
 
-		FEITO, NAO_EXISTE, JA_REPROCESSADO
+		FEITO, NAO_EXISTE, JA_REPROCESSADO, VENCIDO
 
 	}
 
 	/**
 	 * Devolve a mensagem ao tópico de origem, com a mesma chave (mesma partição; vai para o fim da fila do pedido).
-	 * Uma vez só por registro: se falhar de novo, vira outro registro na fila de mortos.
+	 * Uma vez só por registro: se falhar de novo, vira outro registro na fila de mortos. Morto velho demais é recusado:
+	 * a limpeza das 4h10 apaga as travas do pedido (reserva devolvida, cobrança cancelada) junto com o morto, e uma
+	 * reserva reprocessada depois disso prenderia a unidade para sempre (achado do revisor, 20/10/2026).
 	 */
 	@Transactional
 	public Reprocesso reprocessar(UUID id) throws Exception {
@@ -91,6 +97,9 @@ public class Mortos {
 		var m = morto.get();
 		if (m.reprocessadoEm() != null) {
 			return Reprocesso.JA_REPROCESSADO;
+		}
+		if (m.mortoEm().isBefore(Instant.now().minus(Duration.ofDays(diasParaReprocessar)))) {
+			return Reprocesso.VENCIDO;
 		}
 		kafka.send(m.topico(), m.chave(), m.mensagem()).get(PublicadorDaSaida.PRAZO.toMillis(), TimeUnit.MILLISECONDS);
 		jdbc.sql("update morto set reprocessado_em = now() where id = :id").param("id", id).update();

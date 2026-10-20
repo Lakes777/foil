@@ -38,6 +38,7 @@ class MortosController {
 			case FEITO -> ResponseEntity.accepted().build();
 			case NAO_EXISTE -> ResponseEntity.notFound().build();
 			case JA_REPROCESSADO -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+			case VENCIDO -> ResponseEntity.status(HttpStatus.GONE).build();
 		};
 	}
 

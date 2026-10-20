@@ -21,7 +21,7 @@ compradores disputam 10 unidades **sem nunca vender a mais**. O pagamento passa 
 | 5. Pagamento | Compra pelo Fiel de verdade: cobrança, QR, aviso assinado, estorno | feita |
 | 6. Lançamento | 200 robôs contra 10 unidades, fila, limite por IP, ao vivo por SSE | feita |
 | 7. Interface | Vitrine, lançamento ao vivo, minhas gemas com inspetor 3D, eventos por dentro, luz negra | feita |
-| 8. Publicação | foil.andrelagos.dev | |
+| 8. Publicação | No ar em [foil.andrelagos.dev](https://foil.andrelagos.dev), limpeza das 4h10, um processador | feita |
 | 9. Observabilidade | OpenTelemetry, Prometheus, Grafana, Jaeger | |
 
 ## Módulos
@@ -260,6 +260,11 @@ Na mesma VM ARM da Oracle (1 núcleo) que o Fiel e os outros projetos, atrás do
   `/saude` não saem da VM, e caminho com `;`, `%` ou `..` é recusado antes da lista.
 - **Compra pelo HTTP só pelo Fiel:** o pagamento simulado é dos robôs; aceitar `SIMULADA` no `POST /pedidos` público
   deixaria um curl levar gemas sem pagar.
+- **Um processador muda as threads virtuais:** a primeira publicação travou o `/saude` (no Java 21, uma thread virtual
+  esperando dentro de um `synchronized` prende o carregador, e com um núcleo só há um). Corrigido com trava no lugar do
+  `synchronized`, pelo menos 4 carregadores por serviço, e o teste de ponta a ponta subindo as JVMs com um processador.
+- **Medido na VM:** um lançamento de 200 robôs vendeu exatamente 10 em 20 s, cada serviço ficou em ~190 MB, e os outros
+  sites da VM seguiram respondendo em ~60 ms durante o lançamento.
 - **Limpeza às 4h10:** saída publicada, ids de eventos e respostas a comandos repetidos saem em 4 dias; vendas,
   compras do visitante, edições dos lançamentos e mortos em 30. Os tópicos guardam no máximo 3 dias (retenção de 2 +
   segmento de 1: o Redpanda só apaga segmento fechado, e o padrão fecha em 14 dias), porque um id de evento apagado

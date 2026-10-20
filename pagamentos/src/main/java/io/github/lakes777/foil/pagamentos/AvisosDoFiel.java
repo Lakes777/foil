@@ -40,6 +40,9 @@ class AvisosDoFiel {
 	/** Quanto o {@code t} do aviso pode estar longe da nossa hora. */
 	static final Duration TOLERANCIA = Duration.ofMinutes(5);
 
+	/** Menos que isso não é segredo de HMAC (achado da auditoria de padrões inseguros, 20/10/2026). */
+	static final int SEGREDO_MINIMO = 32;
+
 	private static final Logger log = LoggerFactory.getLogger(AvisosDoFiel.class);
 
 	enum Recebido {
@@ -102,10 +105,17 @@ class AvisosDoFiel {
 					r.corpo().path("detail").asString(""));
 			return false;
 		}
+		// Resposta sem segredo (ou curto demais): gravar "" deixaria qualquer um assinar avisos falsos com a chave
+		// vazia. Melhor não cadastrar (o aviso fica 503 e a conferência a cada 15 s segue achando os pagamentos)
+		var segredo = r.corpo().path("segredo").asString("");
+		if (segredo.length() < SEGREDO_MINIMO) {
+			log.error("pagamentos: o Fiel cadastrou o endereço dos avisos mas não mandou um segredo que preste; ignorado");
+			return false;
+		}
 		jdbc.sql("""
 				insert into webhook_do_fiel (url, segredo) values (:url, :segredo)
 				on conflict (id) do update set url = excluded.url, segredo = excluded.segredo, registrado_em = now()
-				""").param("url", endereco).param("segredo", r.corpo().path("segredo").asString()).update();
+				""").param("url", endereco).param("segredo", segredo).update();
 		log.info("pagamentos: endereço dos avisos cadastrado no Fiel ({})", endereco);
 		return true;
 	}

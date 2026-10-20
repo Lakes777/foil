@@ -85,6 +85,9 @@ final class FielDeMentira implements AutoCloseable {
 
 	volatile boolean foraDoAr;
 
+	/** O cadastro do endereço responde sem o campo "segredo". */
+	volatile boolean semSegredo;
+
 	/** Os próximos N POST /cobrancas criam a cobrança, mas respondem 500 (a resposta "se perde"). */
 	final AtomicInteger perderRespostas = new AtomicInteger();
 
@@ -174,6 +177,10 @@ final class FielDeMentira implements AutoCloseable {
 			var metodo = troca.getRequestMethod();
 			if (metodo.equals("PUT") && caminho.equals("/webhook")) {
 				webhook = json.readTree(corpo).path("url").asString();
+				if (semSegredo) {
+					responder(troca, 200, Map.of("url", webhook));
+					return;
+				}
 				segredo = HexFormat.of().formatHex(UUID.randomUUID().toString().getBytes(StandardCharsets.UTF_8));
 				responder(troca, 200, Map.of("url", webhook, "segredo", segredo));
 			}

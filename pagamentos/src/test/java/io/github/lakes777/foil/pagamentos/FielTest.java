@@ -102,6 +102,7 @@ class FielTest {
 	@BeforeEach
 	void abrir() {
 		FIEL.foraDoAr = false;
+		FIEL.semSegredo = false;
 		FIEL.valorMaximo = Integer.MAX_VALUE;
 		eventos = new LeitorDeTopico(redpanda.getBootstrapServers(), Topicos.PAGAMENTOS_EVENTOS);
 	}
@@ -270,6 +271,7 @@ class FielTest {
 		assertThat(FIEL.pagar(pedido, true)).isEqualTo(204);
 		assertThat(situacao(pedido)).isEqualTo("estornando");
 		FIEL.foraDoAr = false;
+		FIEL.semSegredo = false;
 
 		resposta(pedido, PagamentoEstornado.TIPO);
 		assertThat(FIEL.daReferencia(pedido).estado).isEqualTo("estornada");
@@ -303,6 +305,7 @@ class FielTest {
 		assertThat(tiposDoPedido(manual, Duration.ofSeconds(1))).isEmpty();
 
 		FIEL.foraDoAr = false;
+		FIEL.semSegredo = false;
 		resposta(manual, CobrancaCriada.TIPO);
 	}
 
@@ -359,6 +362,23 @@ class FielTest {
 		assertThat(FIEL.daReferencia(novo).estornos).isEmpty();
 		assertThat(tiposDoPedido(antigo, Duration.ofSeconds(1))).doesNotContain(PagamentoAprovado.TIPO,
 				PagamentoEstornado.TIPO);
+	}
+
+	@Test
+	void cadastroSemSegredoNaoTrocaOSegredoGuardado() throws Exception {
+		assertThat(avisos.cadastrar()).isTrue();
+		var guardado = jdbc.sql("select segredo from webhook_do_fiel").query(String.class).single();
+		FIEL.semSegredo = true;
+
+		assertThat(avisos.cadastrar()).isFalse();
+
+		// "" guardado deixaria o recebimento de avisos quebrado sem ninguém ver (o HMAC do Java recusa chave vazia)
+		assertThat(jdbc.sql("select segredo from webhook_do_fiel").query(String.class).single()).isEqualTo(guardado);
+		var pedido = UUID.randomUUID();
+		cobrarNoFiel(pedido, 1000);
+		resposta(pedido, CobrancaCriada.TIPO);
+		assertThat(FIEL.pagar(pedido, true)).isEqualTo(204);
+		resposta(pedido, PagamentoAprovado.TIPO);
 	}
 
 	@Test

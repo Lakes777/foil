@@ -17,3 +17,8 @@ target/
 ### Interface (fase 7) ###
 node_modules/
 dist/
+
+# worktrees dos subagentes do Claude Code
+.claude/
+dev/logs/
+dev/.pids

@@ -178,9 +178,12 @@ class LancamentosTest {
 		lancamentos.avancar();
 		assertThat(lancamento(id).estado()).as("ainda há sagas andando").isEqualTo(EstadoDoLancamento.ESPERANDO);
 
+		// Confirmado sempre leva a unidade (check do banco): as 9 primeiras ganham 1 a 9
 		jdbc.sql("""
-				update pedido set estado = case when id in (select id from pedido where lancamento_id = :l order by id limit 9)
-				then 'CONFIRMADO' else 'SEM_ESTOQUE' end, prazo = null
+				with vendidos as (select id, row_number() over (order by id) as n from pedido
+				                  where lancamento_id = :l order by id limit 9)
+				update pedido p set estado = case when p.id in (select id from vendidos) then 'CONFIRMADO' else 'SEM_ESTOQUE' end,
+				unidade = (select n from vendidos v where v.id = p.id), prazo = null
 				where lancamento_id = :l and id <> (select max(id::text)::uuid from pedido where lancamento_id = :l)
 				""").param("l", id).update();
 		lancamentos.avancar();

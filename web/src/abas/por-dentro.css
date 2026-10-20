@@ -1,0 +1,219 @@
+/* Por dentro: a saga de uma compra à esquerda e todos os eventos à direita, como no protótipo aprovado. */
+.arquitetura {
+  margin: 22px 0 32px;
+  padding: 14px 18px;
+  border-left: 2px solid var(--lilas);
+  background: var(--veludo);
+  border-radius: 0 12px 12px 0;
+  color: var(--suave);
+  font-size: 14px;
+  max-width: 82ch;
+}
+
+.arquitetura b {
+  font: 500 13px var(--mono);
+  color: var(--texto);
+}
+
+.painel {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .painel {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .painel .cartao {
+    padding: 20px 16px;
+  }
+}
+
+.eventos-cab {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.eventos-cab h2 {
+  font: 500 15px var(--corpo);
+  margin: 0 0 4px;
+}
+
+.eventos-cab .sub {
+  color: var(--apagado);
+  font: 400 12.5px var(--mono);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.eventos-cab .sub[data-conectado='true'] {
+  color: var(--suave);
+}
+
+.eventos-cab .btn {
+  padding: 7px 14px;
+  font-size: 13.5px;
+  flex: none;
+}
+
+/* a linha do tempo da saga */
+.saga {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.saga li {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 14px;
+  position: relative;
+  padding-bottom: 20px;
+}
+
+.saga li:last-child {
+  padding-bottom: 0;
+}
+
+.saga li::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 22px;
+  bottom: 0;
+  width: 1px;
+  background: var(--fio-claro);
+}
+
+.saga li:last-child::before {
+  display: none;
+}
+
+.saga .ponto {
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+}
+
+.saga .ponto .gema {
+  width: 21px;
+  height: 21px;
+}
+
+.saga b {
+  font-weight: 500;
+  display: block;
+  font-size: 14.5px;
+  transition: color 0.6s var(--suave-mov);
+}
+
+.saga li.falta b {
+  color: var(--apagado);
+}
+
+.saga li.feito.ruim b {
+  color: var(--ruim);
+}
+
+.saga li.feito.ok b {
+  color: var(--ok);
+}
+
+.saga small {
+  color: var(--apagado);
+  font-size: 13px;
+  display: block;
+}
+
+.saga time {
+  font: 400 12px var(--mono);
+  color: var(--apagado);
+  white-space: nowrap;
+}
+
+.saga-vazia,
+.fluxo-vazio {
+  color: var(--apagado);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* todos os eventos */
+.fluxo {
+  display: grid;
+  font-size: 13.5px;
+  max-height: 640px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.fluxo .linha {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--fio);
+  align-items: center;
+}
+
+.fluxo .linha:last-child {
+  border-bottom: 0;
+}
+
+.fluxo time {
+  font: 400 12px var(--mono);
+  color: var(--apagado);
+}
+
+.fluxo .ev {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fluxo .ev code {
+  font: 400 12.5px var(--mono);
+  color: var(--suave);
+}
+
+.fluxo .ev .ev-estado {
+  color: var(--apagado);
+}
+
+.estado.neutro {
+  color: var(--suave);
+}
+
+.fluxo .linha.nova {
+  animation: brilhar 1.2s var(--suave-mov);
+}
+
+@keyframes brilhar {
+  from {
+    background: rgba(203, 184, 255, 0.08);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@media (max-width: 480px) {
+  .fluxo .linha {
+    grid-template-columns: 56px minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .fluxo .ev .ev-estado {
+    display: none;
+  }
+}

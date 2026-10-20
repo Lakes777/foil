@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -89,16 +90,23 @@ public class Saga {
 	/** Um pedido de robô leva o id do lançamento (fase 6); o da loja, null. */
 	@Transactional
 	public Pedido criar(long edicaoId, Forma forma, UUID lancamentoId) {
+		return criar(edicaoId, forma, lancamentoId, null);
+	}
+
+	/** O da loja leva o visitante (o cookie), para aparecer em "Minhas gemas"; o dos robôs, null. */
+	@Transactional
+	public Pedido criar(long edicaoId, Forma forma, UUID lancamentoId, UUID visitante) {
 		var id = UUID.randomUUID();
 		jdbc.sql("""
-				insert into pedido (id, edicao_id, estado, prazo, forma, lancamento_id)
-				values (:id, :edicao, 'RESERVANDO', :prazo, :forma, :lancamento)
+				insert into pedido (id, edicao_id, estado, prazo, forma, lancamento_id, visitante)
+				values (:id, :edicao, 'RESERVANDO', :prazo, :forma, :lancamento, :visitante)
 				""")
 			.param("id", id)
 			.param("edicao", edicaoId)
 			.param("forma", forma.name())
 			.param("prazo", daquiA(prazoDaReserva))
 			.param("lancamento", lancamentoId)
+			.param("visitante", visitante)
 			.update();
 		mandar(Topicos.ESTOQUE_COMANDOS, id, ReservarUnidade.TIPO, ReservarUnidade.VERSAO, new ReservarUnidade(edicaoId));
 		contar(id, Estado.RESERVANDO, null, edicaoId);
@@ -226,6 +234,30 @@ public class Saga {
 		return jdbc.sql(COLUNAS + "where id = :id").param("id", id).query(Pedido.class).optional();
 	}
 
+	/**
+	 * Uma compra do visitante. {@code unidade} só nos confirmados: gravada na confirmação (a ordem entre os confirmados
+	 * da mesma edição, robôs incluídos), então não muda depois.
+	 */
+	public record CompraDoVisitante(Pedido pedido, Integer unidade) {
+	}
+
+	static final int COMPRAS_POR_VISITANTE = 50;
+
+	@Transactional(readOnly = true)
+	public List<CompraDoVisitante> doVisitante(UUID visitante) {
+		var pedidos = jdbc.sql(COLUNAS + "where visitante = :v order by criado_em desc limit :n")
+			.param("v", visitante)
+			.param("n", COMPRAS_POR_VISITANTE)
+			.query(Pedido.class)
+			.list();
+		var unidades = new HashMap<UUID, Integer>();
+		jdbc.sql("select id, unidade from pedido where visitante = :v and unidade is not null")
+			.param("v", visitante)
+			.query((rs, i) -> unidades.put(rs.getObject("id", UUID.class), rs.getInt("unidade")))
+			.list();
+		return pedidos.stream().map(p -> new CompraDoVisitante(p, unidades.get(p.id()))).toList();
+	}
+
 	@Transactional(readOnly = true)
 	public List<Pedido> pedidosDaEdicao(long edicaoId) {
 		return jdbc.sql(COLUNAS + "where edicao_id = :edicao order by criado_em").param("edicao", edicaoId).query(Pedido.class).list();
@@ -255,9 +287,22 @@ public class Saga {
 	}
 
 	private void terminar(Pedido p, Estado fim, String motivo) {
+		if (fim == Estado.CONFIRMADO) {
+			// A próxima unidade da edição: a trava por edição faz duas confirmações simultâneas esperarem uma pela
+			// outra (o índice único é a última trava, se alguém esquecer desta)
+			jdbc.sql("select pg_advisory_xact_lock(hashtextextended('foil.unidade.' || :edicao, 0))")
+				.param("edicao", p.edicaoId())
+				.query((rs, i) -> 1)
+				.single();
+		}
 		jdbc.sql("""
-				update pedido set estado = :estado, motivo = :motivo, prazo = null, atualizado_em = now() where id = :id
-				""").param("estado", fim.name()).param("motivo", motivo).param("id", p.id()).update();
+				update pedido set estado = :estado, motivo = :motivo, prazo = null, atualizado_em = now(),
+				unidade = case when :estado = 'CONFIRMADO'
+				               then (select coalesce(max(unidade), 0) + 1 from pedido where edicao_id = :edicao) end
+				where id = :id
+				""").param("estado", fim.name()).param("motivo", motivo).param("edicao", p.edicaoId())
+			.param("id", p.id())
+			.update();
 		contar(p.id(), fim, motivo, p.edicaoId());
 	}
 

@@ -22,6 +22,11 @@ class CatalogoController {
 		return estoque.cartas();
 	}
 
+	@GetMapping("/vitrine")
+	List<EstoqueService.ItemDaVitrine> vitrine() {
+		return estoque.vitrine();
+	}
+
 	@GetMapping("/cartas/{id}/edicoes")
 	ResponseEntity<List<Edicao>> edicoes(@PathVariable long id) {
 		if (!estoque.existeCarta(id)) {

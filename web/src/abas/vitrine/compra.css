@@ -1,0 +1,200 @@
+/* o diálogo da compra: do pedido ao QR do Fiel e à confirmação */
+.compra-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 8, 11, 0.72);
+  backdrop-filter: blur(6px);
+  animation: compra-fundo 0.5s var(--suave-mov);
+}
+
+.compra-caixa {
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  background: var(--veludo);
+  border: 1px solid var(--fio-claro);
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.9);
+  animation: compra-chegar 0.6s var(--suave-mov);
+}
+
+.compra-caixa:focus {
+  outline: none;
+}
+
+.compra-cab {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--fio);
+}
+
+.compra-cab .gema {
+  width: 48px;
+  height: 48px;
+}
+
+.compra-titulo {
+  font: italic 500 24px/1.1 var(--display);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.compra-sub {
+  margin: 4px 0 0;
+  font: 400 12.5px var(--mono);
+  color: var(--apagado);
+}
+
+.compra-fechar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--fio-claro);
+  background: transparent;
+  color: var(--suave);
+  display: grid;
+  place-items: center;
+  transition:
+    color 0.5s var(--suave-mov),
+    border-color 0.5s var(--suave-mov);
+}
+
+.compra-fechar:hover {
+  color: var(--texto);
+  border-color: var(--suave);
+}
+
+.compra-fechar svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+.compra-corpo {
+  padding-top: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.compra-passo {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.compra-passo p {
+  margin: 0;
+}
+
+.compra-passo-titulo {
+  font: italic 500 21px/1.2 var(--display);
+}
+
+/* a lapidação em andamento: um losango que gira devagar */
+.compra-lapidando {
+  width: 22px;
+  height: 22px;
+  margin: 4px 6px;
+  border: 1.5px solid var(--lilas);
+  transform: rotate(45deg);
+  animation: lapidar 2.4s var(--suave-mov) infinite;
+}
+
+@keyframes lapidar {
+  50% {
+    transform: rotate(225deg) scale(0.8);
+    border-color: var(--suave);
+  }
+  100% {
+    transform: rotate(405deg);
+  }
+}
+
+.compra-texto {
+  margin: 0;
+  color: var(--suave);
+  font-size: 14px;
+}
+
+.compra-qr {
+  display: grid;
+  place-items: center;
+  animation: compra-chegar 0.7s var(--suave-mov);
+}
+
+.compra-qr .qr {
+  max-width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+.compra-prazo {
+  margin: 0;
+  font-size: 14px;
+  color: var(--meio);
+}
+
+.compra-prazo b {
+  font: 500 15px var(--mono);
+}
+
+.compra-acoes {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.compra-final {
+  margin: 0;
+  font: italic 500 26px/1.15 var(--display);
+  animation: compra-chegar 0.7s var(--suave-mov);
+}
+
+.compra-final.ok {
+  color: var(--ok);
+}
+
+.compra-final.ruim {
+  color: var(--ruim);
+}
+
+.compra-recusa {
+  margin: 0;
+  color: var(--ruim);
+}
+
+.compra-falhou {
+  margin: 0;
+  font-size: 13px;
+  color: var(--meio);
+}
+
+@keyframes compra-fundo {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes compra-chegar {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compra-lapidando {
+    animation: none;
+  }
+}

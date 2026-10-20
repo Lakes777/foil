@@ -1,5 +1,6 @@
 package io.github.lakes777.foil.estoque;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -106,7 +107,7 @@ public class EstoqueService {
 	public Carta criarCarta(String nome, String raridade, String descricao) {
 		return jdbc.sql("""
 				insert into carta (nome, raridade, descricao) values (:nome, :raridade, :descricao)
-				returning id, nome, raridade, descricao
+				returning id, nome, raridade, descricao, mohs, cor, fluorescencia
 				""")
 			.param("nome", nome)
 			.param("raridade", raridade)
@@ -178,7 +179,35 @@ public class EstoqueService {
 
 	@Transactional(readOnly = true)
 	public List<Carta> cartas() {
-		return jdbc.sql("select id, nome, raridade, descricao from carta order by id").query(Carta.class).list();
+		return jdbc.sql("select id, nome, raridade, descricao, mohs, cor, fluorescencia from carta order by id")
+			.query(Carta.class)
+			.list();
+	}
+
+	/**
+	 * Uma gema da vitrine com a edição à venda: a mais nova que ainda tem unidades; se todas esgotaram, a mais nova.
+	 * Sem isso, um lançamento (que abre uma edição nova e esgota) escondia o que sobrou da edição anterior.
+	 */
+	public record ItemDaVitrine(Carta carta, Edicao edicao) {
+	}
+
+	@Transactional(readOnly = true)
+	public List<ItemDaVitrine> vitrine() {
+		return jdbc.sql("""
+				select c.id, c.nome, c.raridade, c.descricao, c.mohs, c.cor, c.fluorescencia,
+				       e.id as e_id, e.carta_id, e.numero, e.total, e.disponivel, e.preco_centavos, e.criada_em
+				from carta c
+				join lateral (select * from edicao where carta_id = c.id order by disponivel > 0 desc, numero desc limit 1)
+				    e on true
+				order by case c.raridade when 'lendaria' then 0 when 'rara' then 1 when 'incomum' then 2 else 3 end, c.id
+				""")
+			.query((rs, i) -> new ItemDaVitrine(
+					new Carta(rs.getLong("id"), rs.getString("nome"), rs.getString("raridade"), rs.getString("descricao"),
+							rs.getInt("mohs"), rs.getString("cor"), rs.getString("fluorescencia")),
+					new Edicao(rs.getLong("e_id"), rs.getLong("carta_id"), rs.getInt("numero"), rs.getInt("total"),
+							rs.getInt("disponivel"), rs.getInt("preco_centavos"),
+							rs.getObject("criada_em", OffsetDateTime.class).toInstant())))
+			.list();
 	}
 
 	@Transactional(readOnly = true)

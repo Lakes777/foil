@@ -1,0 +1,33 @@
+/* a escala de Mohs: 10 traços, acesos até a dureza da gema */
+.mohs {
+  display: grid;
+  gap: 5px;
+}
+
+.mohs-escala {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 3px;
+}
+
+.mohs-escala i {
+  height: 4px;
+  border-radius: 2px;
+  background: #2f323a;
+}
+
+.mohs-escala i.aceso {
+  background: var(--lilas);
+}
+
+.mohs-legenda {
+  display: flex;
+  justify-content: space-between;
+  font: 400 11px var(--mono);
+  color: var(--apagado);
+}
+
+.mohs-legenda b {
+  color: var(--texto);
+  font-weight: 500;
+}

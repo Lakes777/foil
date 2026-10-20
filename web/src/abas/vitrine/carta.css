@@ -1,0 +1,161 @@
+/* o miolo de uma carta (usado na carta em destaque da vitrine e na frente da carta do inspetor) */
+.carta-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 10px;
+}
+
+.carta-nome {
+  font: italic 500 27px/1 var(--display);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.carta-serie {
+  font: 400 11.5px/1.5 var(--mono);
+  color: var(--suave);
+  text-align: right;
+  flex: none;
+}
+
+.carta-janela {
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 42%, #23262e, #0d0e11 72%);
+  border: 1px solid #2f323a;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+
+.carta-janela .gema {
+  width: 74%;
+  height: auto;
+  filter: drop-shadow(0 18px 24px rgba(0, 0, 0, 0.6));
+}
+
+.carta-pe {
+  display: grid;
+  gap: 10px;
+}
+
+.carta-texto {
+  font-size: 13px;
+  color: #c9c8c3;
+  margin: 0;
+  line-height: 1.45;
+}
+
+[data-uv] .carta-texto {
+  color: var(--texto);
+}
+
+/* a carta grande da abertura: inclina e o prisma segue o ponteiro */
+.carta-destaque {
+  --mx: 40%;
+  --my: 30%;
+  position: relative;
+  width: min(330px, 100%);
+  aspect-ratio: 63 / 88;
+  border-radius: 18px;
+  padding: 16px;
+  background: linear-gradient(165deg, #22252c 0%, #15171b 60%, #111216 100%);
+  border: 1px solid #454956;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 12px;
+  transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition:
+    transform 0.7s var(--suave-mov),
+    box-shadow 0.7s var(--suave-mov);
+  box-shadow:
+    0 30px 60px -20px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+}
+
+.carta-destaque::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--prisma);
+  mix-blend-mode: soft-light;
+  opacity: 0.35;
+  mask: radial-gradient(circle at var(--mx) var(--my), #000 0, transparent 55%);
+  transition: opacity 0.7s var(--suave-mov);
+}
+
+.carta-destaque:hover::after,
+.carta-destaque:focus-visible::after {
+  opacity: 0.7;
+}
+
+/* a faixa de luz que passa pela gema, de tempos em tempos */
+.carta-destaque .carta-janela::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  background: linear-gradient(
+    115deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.1) 50%,
+    transparent 58%
+  );
+  transform: translateX(-60%);
+  animation: faixa-de-luz 5.5s var(--suave-mov) 1s infinite;
+  pointer-events: none;
+}
+
+[data-uv] .carta-destaque .carta-janela::after {
+  animation: none;
+  opacity: 0;
+}
+
+@keyframes faixa-de-luz {
+  0%,
+  55% {
+    transform: translateX(-60%);
+  }
+  100% {
+    transform: translateX(60%);
+  }
+}
+
+.carta-destaque.esperando .carta-janela::after {
+  animation: none;
+}
+
+/* osso: o lugar de um texto que ainda não chegou (pulsa devagar, sem spinner) */
+.osso {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--vidro);
+  animation: osso 1.8s ease-in-out infinite;
+}
+
+.osso-titulo {
+  height: 22px;
+  width: 60%;
+}
+
+.osso-curto {
+  width: 40%;
+}
+
+@keyframes osso {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carta-destaque .carta-janela::after,
+  .osso {
+    animation: none;
+  }
+}

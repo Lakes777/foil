@@ -1,9 +1,11 @@
 # Foil
 
-Loja de cartas colecionáveis de um jogo fictício, feita como **vitrine de arquitetura de eventos**: três
-serviços que conversam por Kafka (Redpanda), uma saga que desfaz os passos quando algo falha e um lançamento
-de carta rara em que centenas de compradores disputam poucas unidades **sem nunca vender a mais**. O
-pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de mentira.
+Loja de gemas que não existem, feita como **vitrine de arquitetura de eventos**: três serviços que conversam por
+Kafka (Redpanda), uma saga que desfaz os passos quando algo falha e um lançamento de gema rara em que 200
+compradores disputam 10 unidades **sem nunca vender a mais**. O pagamento passa pelo
+[Fiel](https://github.com/Lakes777/fiel), com dinheiro de mentira.
+
+![Vitrine, luz negra, um lançamento de 200 robôs ao vivo, os eventos por dentro e o certificado da gema comprada](docs/demo.gif)
 
 > Em construção, uma fase por vez. A especificação completa (decisões, fases e critérios de aceite) está em
 > [docs/SPEC.md](docs/SPEC.md).
@@ -18,7 +20,7 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 | 4. Saga | Máquina de estados, compensações, prazo de 5 min, fila de mortos | feita |
 | 5. Pagamento | Compra pelo Fiel de verdade: cobrança, QR, aviso assinado, estorno | feita |
 | 6. Lançamento | 200 robôs contra 10 unidades, fila, limite por IP, ao vivo por SSE | feita |
-| 7. Interface | Loja e painel de eventos | |
+| 7. Interface | Vitrine, lançamento ao vivo, minhas gemas com inspetor 3D, eventos por dentro, luz negra | feita |
 | 8. Publicação | foil.andrelagos.dev | |
 | 9. Observabilidade | OpenTelemetry, Prometheus, Grafana, Jaeger | |
 
@@ -28,10 +30,11 @@ pagamento passa pelo [Fiel](https://github.com/Lakes777/fiel), com dinheiro de m
 |---|---|
 | `contratos` | Envelope dos eventos (`id`, `tipo`, `versao`, `ocorridoEm`, `pedidoId`, `dados`), tópicos e os comandos/eventos de cada serviço |
 | `comum` | Base dos três serviços: `GET /saude` (200 só com banco e Redpanda respondendo; 503 dizendo qual caiu), outbox, consumidor idempotente, tópicos e, nos testes, os contêineres |
-| `pedidos` | Orquestrador da saga e dos lançamentos: `POST /pedidos`, `GET /pedidos/{id}`, `POST /lancamentos`, `GET /lancamentos`, `GET /eventos` (SSE) (porta 8091) |
-| `estoque` | Cartas, edições, reserva e devolução; `GET /cartas`, `/cartas/{id}/edicoes`, `/edicoes/{id}` (porta 8092) |
+| `pedidos` | Orquestrador da saga e dos lançamentos: `POST /pedidos`, `GET /pedidos/{id}`, `GET /minhas`, `POST /lancamentos`, `GET /lancamentos`, `GET /eventos` (SSE) (porta 8091) |
+| `estoque` | Gemas, edições, reserva e devolução; `GET /vitrine`, `/cartas`, `/cartas/{id}/edicoes`, `/edicoes/{id}` (porta 8092) |
 | `pagamentos` | Cobranças simuladas (os robôs) e no Fiel (a compra manual), cancelamento e estorno; `POST /fiel/avisos` (porta 8093) |
 | `ponta-a-ponta` | Testes com os três serviços (e o Fiel) como processos de verdade, derrubando um deles |
+| `web` | A interface: React + TypeScript + Vite, ao vivo por SSE, testes com Vitest |
 
 Cada serviço tem o próprio banco (`foil_pedidos`, `foil_estoque`, `foil_pagamentos`) e as próprias migrações Flyway.
 
@@ -222,20 +225,48 @@ todo mundo por mais de 60 s. Com o fechamento à parte, as 3000 mensagens chegam
 lenta leva milissegundos. Um estoque que nunca responde recebe o `AbrirEdicao` 5 vezes e o lançamento termina em
 `FALHOU` (`ESTOQUE_SEM_RESPOSTA`), sem parar a fila.
 
+## A interface
+
+Uma função por aba, cada uma com endereço próprio (`#vitrine`, `#lancamento`, `#colecao`, `#por-dentro`).
+
+| | |
+|---|---|
+| ![Vitrine](docs/vitrine.png) | ![Lançamento ao vivo](docs/lancamento.png) |
+| **Vitrine:** nove gemas inventadas, cada uma com dureza na escala de Mohs de verdade. A gema é desenhada por código (corte brilhante visto de cima) a partir de uma chave de cor guardada no estoque, sem nenhuma imagem. | **Lançamento:** o estojo de 10 lugares apaga conforme as unidades saem, os números chegam pelo SSE, a fila mostra "o seu". |
+| ![Luz negra](docs/luz-negra.png) | ![O certificado na luz negra](docs/certificado.png) |
+| **Luz negra** (botão ou tecla L): as gemas com fluorescência acendem na cor delas e as outras apagam, como fluorita e calcita de verdade. | **Minhas gemas:** a carta em 3D (arrastar gira, V vira). O verso é o certificado da unidade, com uma marca em "tinta invisível" que só aparece na luz negra. |
+| ![Por dentro](docs/por-dentro.png) | ![No celular](docs/celular.png) |
+| **Por dentro:** a saga de uma compra passo a passo e todos os eventos de `pedidos.eventos`, em lotes de 4 por segundo e com pausa. | No celular as abas deslizam e nada passa da largura da tela. |
+
+- **Quem é quem sem conta:** a primeira compra cria um cookie `foil_visitante` (UUID aleatório, HttpOnly, SameSite=Lax);
+  "Minhas gemas" lista só os pedidos desse cookie. Cookie adulterado vale como nenhum.
+- **A unidade do certificado** ("4 de 10") é gravada na confirmação, com uma trava por edição e um índice único: 20
+  confirmações ao mesmo tempo recebem de 1 a 20, sem repetir (contraprova: sem a trava, repete).
+- **Compra uma vez só:** o pedido sai no clique, não num efeito do React. O StrictMode monta o diálogo duas vezes em
+  dev, e com o pedido no efeito cada clique comprava duas gemas (o teste roda em StrictMode e exige um POST).
+- **O catálogo** é uma migração repetível (`db/catalogo/R__catalogo.sql`): atualiza as gemas pelo nome e cria só a 1ª
+  edição de quem ainda não tem. Os testes do estoque rodam sem ela, com as próprias cartas.
+- A identidade ("joalheria à noite") saiu de um protótipo com 5 versões: [docs/prototipo-fase-7.html](docs/prototipo-fase-7.html).
+
 ## Tecnologia
 
 Java 21 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · JUnit 5 ·
-Testcontainers · GitHub Actions
+Testcontainers · React 19 · TypeScript · Vite · Vitest · GitHub Actions
 
 ## Rodar
 
-Precisa de Java 21 e Docker.
+Precisa de Java 21, Node e Docker.
 
 ```bash
+dev/rodar-tudo.sh                  # tudo no PC: compose, o Fiel (repositório vizinho ../fiel), os 3 serviços e as telas
+                                   # loja em http://localhost:5195, Fiel em http://localhost:5190
+dev/rodar-tudo.sh parar
+
 ./mvnw verify                      # testes: sobe Postgres e Redpanda de verdade em contêineres (~5 min)
+cd web && npm ci && npm test       # testes da interface (Vitest)
 
 docker compose up -d               # Postgres (5434), Redpanda (19092) e o console do Redpanda (8090)
 ./mvnw install -DskipTests
 ./mvnw -pl estoque spring-boot:run -Dspring-boot.run.profiles=dev
-curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"6"}
+curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"7"}
 ```

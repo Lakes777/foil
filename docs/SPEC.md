@@ -298,6 +298,40 @@ na saída, na mesma transação. Decisões da fase 4:
 - Telas: loja (cartas, compra, QR do Fiel), **painel de eventos** (cada saga passo a passo, ao vivo) e o
   lançamento com estoque caindo ao vivo, vendidos e recusados.
 - Identidade visual própria e o jogo fictício (nome, cartas, arte) decididos na fase 7.
+
+> 20/10/2026 (fase 7): decisões tomadas com o André, a partir de um protótipo (5 versões; ele recusou duas
+> rodadas de propostas antes desta).
+>
+> - **O jogo:** gemas fictícias (nomes e cores inventados), com dureza na **escala de Mohs de verdade** (1 a 10) e
+>   **fluorescência** (algumas acendem na luz negra, como fluorita e calcita). Raridade continua `comum`/`incomum`/
+>   `rara`/`lendaria`. A arte não é imagem: a interface desenha a gema lapidada por código a partir da `cor` da carta
+>   (uma chave de paleta) e, na luz negra, da `fluorescencia` (outra chave, ou nenhuma).
+> - **Identidade "joalheria à noite":** grafite calmo, a cor só dentro das gemas, brilho de prisma; Bodoni Moda
+>   (itálico nos nomes) + Hanken Grotesk + Red Hat Mono; lilás `#cbb8ff` nos destaques. Sem emojis.
+> - **Uma função por aba** (pedido dele): Vitrine (abertura + gemas à venda), Lançamento (o da vez, a fila, o estojo de
+>   10 lugares), Minhas gemas (inspetor) e Por dentro (a saga da compra + todos os eventos). O endereço guarda a aba.
+> - **Luz negra:** botão no topo e tecla L, em qualquer aba; as gemas sem fluorescência apagam, as outras acendem na
+>   cor delas; o verso do certificado tem uma marca em "tinta invisível" (AUTÊNTICA + unidade + pedido).
+> - **Minhas gemas:** as compras deste navegador. Inspetor 3D: arrastar gira, "virar" mostra o certificado da unidade
+>   (unidade N de total, lapidada, comprada, pedido, cobrança), luz e zoom; teclado: setas, V, + e -.
+> - **Backend que isso pede:** (1) estoque: `carta` ganha `mohs`, `cor`, `fluorescencia` (V7) e o **catálogo** vira
+>   uma migração repetível (`R__catalogo.sql` em `db/catalogo`, ligada fora dos testes) com a 1ª edição de cada gema;
+>   `GET /vitrine` = cada gema com a edição mais nova. (2) pedidos: cookie `foil_visitante` (UUID aleatório,
+>   HttpOnly, SameSite=Lax, Secure fora do dev, 1 ano) criado no `POST /pedidos` e gravado em `pedido.visitante` (V7);
+>   `GET /minhas` = os pedidos desse cookie (máx. 50), com a **unidade** de cada confirmado = a ordem dele entre os
+>   confirmados da edição (os robôs contam). Sem cookie = lista vazia.
+> - **Achados do revisor (20/10/2026), corrigidos:** (1) a compra saía 2 vezes em dev (o POST num `useEffect` + StrictMode):
+>   agora o POST é feito no clique e o diálogo só acompanha (teste em StrictMode exige 1 POST; contraprova: 2). (2) a
+>   **unidade** passou a ser gravada na confirmação (`pedido.unidade`, trava consultiva por edição + índice único +
+>   check "confirmado ⇔ unidade"), em vez de calculada na leitura (dependia do horário da transação e fazia 1 consulta
+>   por pedido); contraprova: sem a trava, 20 confirmações simultâneas repetem unidade. (3) a vitrine mostra a edição
+>   **mais nova com estoque** (um lançamento esgotado escondia o que sobrou da edição anterior). (4) "Minhas gemas"
+>   só trata 404 como "edição apagada"; outra falha vira erro com "Tentar de novo". (5) `linkParaPagar` só vira link se
+>   for https (ou http em localhost). (6) `--apagado` clareado para 5,7:1 de contraste; o registro de eventos com
+>   `aria-live="off"`. (7) cookie sem `Secure` no perfil dev (`foil.cookie.seguro=false`), para abrir pelo IP.
+>   Aceito: o catálogo usa o nome como chave (renomear cria outra gema; documentado no arquivo).
+> - **Caminhos:** a interface chama `/api/pedidos/*` e `/api/estoque/*`; no dev, o proxy do Vite tira o prefixo; na
+>   **fase 8**, o Caddy faz o mesmo (`handle_path`). O `web/` é React + TS + Vite com Vitest; o CI ganha um job dele.
 - Limpeza diária às 4h10: pedidos, edições e eventos antigos.
 
 ## 9. Fases e critérios de aceite

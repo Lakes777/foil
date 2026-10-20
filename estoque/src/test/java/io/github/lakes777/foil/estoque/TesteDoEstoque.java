@@ -14,12 +14,13 @@ import io.github.lakes777.foil.comum.ConteineresDeTeste;
  * Mesma configuração em todos os testes do estoque, para o Spring reaproveitar o contexto (e os contêineres).
  * Pool de 20 conexões: com as 5 de produção, os 200 pedidos quase não disputariam a mesma linha ao mesmo tempo.
  * Espera por conexão de 30 s (produção usa 3 s): num CI lento, a fila de 200 por 20 não pode reprovar a regra.
+ * Sem o catálogo da loja: cada teste cria as próprias cartas (o {@code CatalogoDaLojaTest} roda o catálogo à parte).
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 		properties = { "spring.datasource.hikari.maximum-pool-size=20",
-				"spring.datasource.hikari.connection-timeout=30000" })
+				"spring.datasource.hikari.connection-timeout=30000", "spring.flyway.locations=classpath:db/migration" })
 @Import(ConteineresDeTeste.class)
 @interface TesteDoEstoque {
 

@@ -1,0 +1,338 @@
+/* Lançamento: o palco (etapas, estojo, contas) à esquerda e a fila à direita, como no protótipo aprovado. */
+.lanc-cab {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 20px 32px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.lanc-acao {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
+.lanc-msg {
+  margin: 0;
+  min-height: 1.5em;
+  font-size: 13.5px;
+  color: var(--suave);
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .lanc-acao {
+    justify-items: start;
+  }
+  .lanc-msg {
+    text-align: left;
+  }
+}
+
+/* o indicador do ao vivo: discreto, só um ponto que respira quando está de pé */
+.ao-vivo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 22px;
+  font: 400 12px var(--mono);
+  color: var(--apagado);
+}
+
+.ao-vivo-ponto {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--apagado);
+  transition: background-color 0.6s var(--suave-mov);
+}
+
+.ao-vivo[data-conectado='true'] .ao-vivo-ponto {
+  background: var(--ok);
+  animation: respirar 2.4s var(--suave-mov) infinite;
+}
+
+@keyframes respirar {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.lanc-carregando {
+  color: var(--apagado);
+}
+
+.lanc-vazio {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 24px;
+  align-items: center;
+}
+
+.lanc-vazio .gema {
+  width: 72px;
+  height: 72px;
+}
+
+.lanc-vazio h2 {
+  font: italic 500 26px/1.1 var(--display);
+  margin: 0 0 6px;
+}
+
+.lanc-vazio p {
+  margin: 0;
+  color: var(--suave);
+  max-width: 60ch;
+}
+
+.lanc-vazio b {
+  color: var(--texto);
+  font-weight: 500;
+}
+
+@media (max-width: 480px) {
+  .lanc-vazio {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lanc {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 1px;
+  background: var(--fio);
+  border: 1px solid var(--fio);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+@media (max-width: 860px) {
+  .lanc {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lanc > div {
+  background: var(--veludo);
+  padding: 28px;
+  min-width: 0;
+}
+
+@media (max-width: 480px) {
+  .lanc > div {
+    padding: 20px 16px;
+  }
+}
+
+.etapas {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 26px;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.etapas li {
+  padding: 5px 11px;
+  border-radius: 999px;
+  color: var(--apagado);
+  border: 1px solid var(--fio);
+  transition:
+    color 0.6s var(--suave-mov),
+    background-color 0.6s var(--suave-mov),
+    border-color 0.6s var(--suave-mov);
+}
+
+.etapas li.feito {
+  color: var(--suave);
+}
+
+.etapas li.agora {
+  color: var(--noite);
+  background: var(--lilas);
+  border-color: var(--lilas);
+}
+
+.etapas li.falhou {
+  color: var(--ruim);
+  border-color: var(--ruim);
+}
+
+.lanc-nome {
+  font: italic 500 30px/1.1 var(--display);
+  margin: 0 0 6px;
+}
+
+.lanc-sub {
+  color: var(--suave);
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.lanc-palco .aviso {
+  margin: 0 0 8px;
+}
+
+.estojo {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 10px;
+  margin: 18px 0 26px;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 520px) {
+  .estojo {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.estojo li {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid var(--fio-claro);
+  display: grid;
+  place-items: center;
+  transition: border-color 0.8s var(--suave-mov);
+}
+
+.estojo .gema {
+  width: 72%;
+  height: auto;
+  transition:
+    opacity 0.8s var(--suave-mov),
+    transform 0.8s var(--suave-mov),
+    filter 1.1s var(--suave-mov);
+}
+
+.estojo li.vendida {
+  border-color: var(--fio);
+}
+
+.estojo li.vendida .gema {
+  opacity: 0.16;
+  transform: scale(0.82);
+  filter: grayscale(1);
+}
+
+.contas {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin: 0 0 24px;
+}
+
+@media (max-width: 520px) {
+  .contas {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.contas div {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  border-top: 1px solid var(--fio);
+  padding-top: 12px;
+}
+
+.contas dd {
+  margin: 0;
+  font: 400 32px/1 var(--display);
+}
+
+.contas dt {
+  font-size: 12.5px;
+  color: var(--apagado);
+  margin-top: 6px;
+}
+
+.contas .r dd {
+  color: var(--ruim);
+}
+
+.contas .p dd {
+  color: var(--meio);
+}
+
+.robos {
+  display: grid;
+  gap: 8px;
+  font: 400 12.5px var(--mono);
+  color: var(--apagado);
+}
+
+.robos-trilho {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--fio);
+  overflow: hidden;
+}
+
+.robos-trilho i {
+  display: block;
+  height: 100%;
+  background: var(--prisma);
+  transform-origin: left;
+  transition: transform 0.8s var(--suave-mov);
+}
+
+.fila h3 {
+  margin: 0 0 16px;
+  font: 500 14px var(--corpo);
+  color: var(--suave);
+}
+
+.fila ol {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.fila li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--fio);
+  min-width: 0;
+}
+
+.fila li span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fila li span:last-child {
+  color: var(--apagado);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-align: right;
+}
+
+.fila li.voce span:first-child {
+  color: var(--lilas);
+}
+
+.fila li.fila-vazia span:first-child {
+  color: var(--apagado);
+}
+
+.fila .regra {
+  font-size: 13px;
+  color: var(--apagado);
+  margin: -8px 0 28px;
+}
+
+.fila .recentes {
+  margin-bottom: 0;
+}

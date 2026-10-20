@@ -1,0 +1,264 @@
+/* Vitrine: a abertura com a gema em destaque e a grade das gemas à venda (fiel ao protótipo da fase 7). */
+
+.abertura {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--fio);
+}
+
+.abertura::before {
+  content: '';
+  position: absolute;
+  inset: -20% -10% auto auto;
+  width: 70%;
+  aspect-ratio: 1;
+  background: radial-gradient(
+    closest-side,
+    rgba(203, 184, 255, 0.1),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.abertura-miolo {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 48px;
+  align-items: center;
+  padding-block: 72px 80px;
+  position: relative;
+}
+
+.abertura-titulo {
+  font: 400 clamp(38px, 6.2vw, 74px)/1.02 var(--display);
+  letter-spacing: -0.02em;
+  margin: 0 0 22px;
+}
+
+.abertura-titulo em {
+  font-style: italic;
+}
+
+.abertura-lead {
+  font-size: 17.5px;
+  color: var(--suave);
+  max-width: 46ch;
+  margin: 0 0 32px;
+}
+
+.abertura-acoes {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.abertura-fatos {
+  display: flex;
+  gap: 36px;
+  margin: 44px 0 0;
+  flex-wrap: wrap;
+}
+
+.abertura-fatos div {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.abertura-fatos dd {
+  margin: 0;
+  font: 400 34px/1 var(--display);
+}
+
+.abertura-fatos dt {
+  font-size: 13px;
+  color: var(--apagado);
+  margin-top: 6px;
+}
+
+.abertura-palco {
+  display: grid;
+  place-items: center;
+  perspective: 1100px;
+  min-height: 300px;
+}
+
+@media (max-width: 860px) {
+  .abertura-miolo {
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: 44px 56px;
+    gap: 40px;
+  }
+}
+
+/* a grade */
+.vitrine-cab {
+  margin-bottom: 32px;
+}
+
+.aviso-uv {
+  font-size: 13px;
+  color: var(--apagado);
+  margin: 6px 0 0;
+}
+
+.pecas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .pecas {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .pecas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.peca {
+  background: var(--veludo);
+  border: 1px solid var(--fio);
+  border-radius: 16px;
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  transition:
+    transform 0.6s var(--suave-mov),
+    border-color 0.6s var(--suave-mov),
+    box-shadow 0.6s var(--suave-mov),
+    opacity 0.6s var(--suave-mov);
+}
+
+.peca:not(.esperando):hover {
+  transform: translateY(-4px);
+  border-color: var(--fio-claro);
+  box-shadow: 0 24px 40px -24px rgba(0, 0, 0, 0.8);
+}
+
+.peca-vidro {
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 45%, #22252c, #0f1013 75%);
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+[data-uv] .peca-vidro {
+  background: radial-gradient(circle at 50% 45%, #1a1430, #08060f 75%);
+}
+
+.peca-vidro::after {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  bottom: 14%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.22),
+    transparent
+  );
+}
+
+.peca-vidro .gema {
+  width: 48%;
+  height: auto;
+  filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.6));
+  transition:
+    transform 0.8s var(--suave-mov),
+    filter 1.1s var(--suave-mov);
+}
+
+.peca:hover .peca-vidro .gema {
+  transform: translateY(-4px) rotate(-4deg);
+}
+
+.peca-nome {
+  font: italic 500 22px/1.1 var(--display);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.peca-ficha {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--suave);
+}
+
+.peca-ficha > span:last-child {
+  white-space: nowrap;
+}
+
+.peca-comprar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--fio);
+}
+
+.peca-preco {
+  font: 400 22px/1 var(--display);
+}
+
+.peca .btn {
+  padding: 8px 16px;
+  font-size: 14px;
+}
+
+.peca.esgotada {
+  opacity: 0.6;
+}
+
+.peca.esgotada .peca-vidro .gema {
+  filter: grayscale(0.7) drop-shadow(0 14px 18px rgba(0, 0, 0, 0.6));
+}
+
+.peca.esperando {
+  gap: 12px;
+}
+
+.peca.esperando .peca-vidro {
+  animation: osso 1.8s ease-in-out infinite;
+}
+
+.vitrine-vazia {
+  border: 1px dashed var(--fio-claro);
+  border-radius: 16px;
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--suave);
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+}
+
+.vitrine-vazia p {
+  margin: 0;
+  max-width: 48ch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .peca.esperando .peca-vidro {
+    animation: none;
+  }
+  .peca:not(.esperando):hover,
+  .peca:hover .peca-vidro .gema {
+    transform: none;
+  }
+}

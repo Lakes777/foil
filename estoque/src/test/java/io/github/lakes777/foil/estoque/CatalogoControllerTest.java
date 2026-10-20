@@ -39,6 +39,10 @@ class CatalogoControllerTest {
 		assertThat(lida.get("total").asInt()).isEqualTo(10);
 		assertThat(lida.get("disponivel").asInt()).isEqualTo(9);
 		assertThat(daCarta.size()).isEqualTo(1);
+		var vitrine = json.readTree(ClienteDeTeste.get(porta, "/vitrine").body());
+		var item = vitrine.valueStream().filter(i -> i.get("carta").get("nome").asString().equals(nome)).findFirst().orElseThrow();
+		assertThat(item.get("edicao").get("id").asLong()).isEqualTo(edicao.id());
+		assertThat(item.get("carta").get("mohs").asInt()).isEqualTo(5);
 	}
 
 	@Test

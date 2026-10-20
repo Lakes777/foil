@@ -33,3 +33,23 @@ jobs:
         run: |
           jar=$(ls fiel-para-teste/build/libs/fiel-*.jar | grep -v plain)
           ./mvnw -B verify -Dfiel.jar="$PWD/$jar"
+
+  # A interface (fase 7): tipos, lint, formato, Vitest e o build de produção
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run tipos
+      - run: npm run lint
+      - run: npm run format:conferir
+      - run: npm test
+      - run: npm run build

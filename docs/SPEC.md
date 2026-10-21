@@ -425,6 +425,10 @@ README atualizado. Uma sessão nova por fase, começando por este arquivo.
 >   de fonte com até 5 MB; (3) o Grafana público saiu da rede do Redpanda (sem senha): rede própria
 >   `foil_observabilidade` com Jaeger, Prometheus, Grafana e os três serviços; (4) só os plugins Prometheus e Jaeger
 >   (eram 13 processos); (5) "Atraso agora" com o mesmo filtro do gráfico.
+> - **Auditoria insecure-defaults (21/10/2026, manual: a skill não roda sem a ferramenta Workflow):** o `/metrics` do
+>   próprio Grafana e a versão exata no `/api/health` estavam abertos ao anônimo -> `GF_METRICS_ENABLED=false` e
+>   `GF_AUTH_ANONYMOUS_HIDE_VERSION=true`. Aceito: o anônimo lê a lista de fontes (endereços internos) e o
+>   `/api/v1/targets` e a configuração do Prometheus pelo proxy (sem segredo nenhum); os spans não têm IP nem cookie.
 > - O link da aba "Por dentro" abre só o painel do trace (`viewPanel`), com o intervalo cobrindo a última hora ou desde
 >   1 minuto antes do pedido.
 

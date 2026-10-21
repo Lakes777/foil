@@ -67,6 +67,9 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_AUTH_DISABLE_LOGIN: "true"
+      # Auditoria (21/10/2026): o /metrics do próprio Grafana e a versão no /api/health ficavam abertos a qualquer um
+      GF_METRICS_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"
       # Medido em 21/10/2026: ~210 MB só do Grafana (192 MB = morto por falta de memória). Alertas e plugins
       # pré-instalados desligados: o painel não usa nenhum
       GF_UNIFIED_ALERTING_ENABLED: "false"

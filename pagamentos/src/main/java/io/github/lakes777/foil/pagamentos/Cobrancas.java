@@ -10,6 +10,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.github.lakes777.foil.comum.eventos.Rastro;
 import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido.Forma;
 
 /**
@@ -58,11 +59,14 @@ public class Cobrancas {
 
 	private final ClienteDoFiel fiel;
 
+	private final Rastro rastro;
+
 	Cobrancas(JdbcClient jdbc, @Value("${foil.pagamentos.simulado.taxa-de-aprovacao:0.8}") double taxaDeAprovacao,
-			ClienteDoFiel fiel) {
+			ClienteDoFiel fiel, Rastro rastro) {
 		this.jdbc = jdbc;
 		this.taxaDeAprovacao = taxaDeAprovacao;
 		this.fiel = fiel;
+		this.rastro = rastro;
 	}
 
 	/** O sorteio do pedido: a mesma resposta toda vez, sem guardar semente. */
@@ -85,10 +89,12 @@ public class Cobrancas {
 			situacao = "recusada";
 		}
 		var gravou = jdbc.sql("""
-				insert into cobranca (pedido_id, valor_centavos, situacao, forma, proxima_em)
-				values (:pedido, :valor, :situacao, :forma, case when :situacao = 'pendente' then now() end)
+				insert into cobranca (pedido_id, valor_centavos, situacao, forma, proxima_em, traceparent)
+				values (:pedido, :valor, :situacao, :forma, case when :situacao = 'pendente' then now() end, :trace)
 				on conflict (pedido_id) do nothing
 				""")
+			// O trace da saga (o CobrarPedido chegou nele): o aviso do Fiel e o trabalhador respondem nele depois
+			.param("trace", rastro.atual())
 			.param("pedido", pedidoId)
 			.param("valor", valorCentavos)
 			.param("situacao", situacao)
@@ -110,9 +116,9 @@ public class Cobrancas {
 	public Cancelamento cancelar(UUID pedidoId) {
 		// Ainda não cobrado: grava a trava, e um CobrarPedido atrasado encontra "cancelada"
 		var travou = jdbc.sql("""
-				insert into cobranca (pedido_id, situacao) values (:pedido, 'cancelada')
+				insert into cobranca (pedido_id, situacao, traceparent) values (:pedido, 'cancelada', :trace)
 				on conflict (pedido_id) do nothing
-				""").param("pedido", pedidoId).update();
+				""").param("pedido", pedidoId).param("trace", rastro.atual()).update();
 		if (travou == 1) {
 			return Cancelamento.CANCELADA;
 		}

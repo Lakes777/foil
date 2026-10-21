@@ -33,7 +33,7 @@ O que o projeto precisa provar (para o recrutador e na entrevista):
 - **Custo zero.** Roda na VM ARM da Oracle (1 núcleo, ~4,3 GB livres em 18/10), junto com Beacon,
   Pursuit, Cadence e Fiel.
 - **Memória (P21):** cada serviço Spring com teto de ~300 MB (`-Xmx` na faixa do Fiel), Redpanda com
-  512 MB e 1 núcleo (20/10/2026, fase 8: `--memory=384M` num contêiner de 640 MB; serviços com 448 MB e `-Xmx256m`), interface com Caddy ~32 MB. Observabilidade (fase 9) ~400 MB a mais. Folga mínima
+  512 MB e 1 núcleo (20/10/2026, fase 8: `--memory=384M` num contêiner de 640 MB; serviços com 448 MB e `-Xmx256m`), interface com Caddy ~32 MB. Observabilidade (fase 9) ~400 MB a mais (21/10/2026: uso medido ~330 MB; limites somam 672 MB). Folga mínima
   de 1 GB na VM depois de tudo.
 - **Um processador e threads virtuais (20/10/2026, achado na 1ª publicação):** no Java 21, a thread virtual que espera
   dentro de um `synchronized` prende o carregador; na VM a JVM via 1 processador = 1 carregador, e o `/saude`
@@ -385,6 +385,48 @@ README atualizado. Uma sessão nova por fase, começando por este arquivo.
 | 7. Interface | Loja, painel de eventos, identidade, jogo fictício | Tudo ao vivo; acessível por teclado; GIF e prints no README |
 | 8. Publicação | VM ARM via `/publicar-vm`, apelidos `foil-*`, usuários próprios no Postgres, limpeza 4h10 | No ar com HTTPS; os outros sites da VM continuam respondendo certo; Vigil monitorando |
 | 9. Observabilidade | OpenTelemetry, Prometheus, Grafana público só leitura, Jaeger | Painel público com vendas/s, sagas desfeitas e atraso do consumidor; trace de uma saga visível de ponta a ponta |
+
+> 21/10/2026 (fase 9, decidido com o André antes de começar):
+> - **Grafana em `foil.andrelagos.dev/painel`** (subcaminho, mesmo Caddy), anônimo com papel de leitura, sem login
+>   nem cadastro; painéis provisionados por arquivo (no repositório).
+> - **Jaeger fechado** na rede interna: o trace aparece num painel do Grafana (fonte Jaeger), e a aba "Por dentro"
+>   ganha o link "ver o trace desta compra". Prometheus também só interno.
+> - **100% dos traces**, robôs inclusive; o Jaeger guarda na memória só os últimos ~2.000. Se a CPU pesar na VM
+>   (medido como na fase 8), a saída é amostrar os robôs.
+> - **A outbox carrega o trace:** a `saida` ganha a coluna `traceparent` (W3C) gravada com o evento, e o publicador
+>   reabre o trace por ela; sem isso, a saga se parte em um trace por mensagem.
+> - Sem OTel Collector: os serviços mandam OTLP direto ao Jaeger (economiza memória).
+>
+> 21/10/2026 (fase 9, decidido ao fazer):
+> - **O trace é do pedido:** `pedido.traceparent` (V8 de pedidos) e `cobranca.traceparent` (V6 de pagamentos).
+>   `Saida.registrar(topico, envelope, traceDoPedido)` usa o span de agora se for o mesmo trace (o consumidor da saga,
+>   pai mais preciso) e o guardado se agora é outro trace ou nenhum (prazo vencido; aviso do Fiel, que chega no trace do
+>   POST do Fiel). Cada robô abre um trace só dele. A conversa com o Fiel (criar, cancelar, estornar) entra no trace; a
+>   conferência a cada 15 s, não.
+> - **Fora dos traces:** toda leitura HTTP (GET/HEAD: `/saude`, a tela da compra perguntando a cada 1,5 s, o SSE), o
+>   `/actuator` e os `@Scheduled` (`ObservationPredicate` no comum, com teste). Toda saga começa num POST; sem isso, as
+>   leituras e os robôs empurravam o trace do comprador para fora dos 2.000 em minutos (revisor).
+> - **Métrica única** `foil_pedidos_terminados_total{estado, motivo, origem}`, contada no `afterCommit` e zerada na
+>   partida para cada combinação (senão o `rate()` perde o começo da série). Atraso do consumidor: a métrica do próprio
+>   cliente Kafka (`records_lag_max`). Actuator só com `prometheus` exposto, na porta do serviço (o Caddy não tem rota).
+> - **Versões:** Jaeger **2.20.0** (a 2.21 tirou a API antiga `/api/services` e `/api/traces?service=`, que o Grafana 13
+>   usa para buscar), Prometheus v3.15.0, Grafana 13.2.4.
+> - **Memória medida:** Grafana ~210 MB próprios (192 MB = morto por falta de memória) -> limite 320 MB, `GOMEMLIMIT`
+>   220 MiB, alertas e plugins pré-instalados desligados; Jaeger ~30 MB (limite 160); Prometheus ~70 MB (limite 192,
+>   3 dias ou 300 MB, consulta com 10 s e 2 milhões de amostras no máximo).
+> - **Grafana sem login nenhum** (`disable_login`, sem basic auth): anônimo com papel Viewer; o admin existe com uma
+>   senha longa gerada na VM (`FOIL_GRAFANA_SENHA`, o `publicar.sh` cria se faltar) e não entra por lugar nenhum. O CSP
+>   do site não vale em `/painel` (o Grafana manda o dele, com nonce). Configs montadas como pastas (arquivo regravado
+>   some de uma montagem de arquivo).
+> - **Achados do revisor (21/10/2026), corrigidos:** (1) o `publicar.sh` apagava e recriava a pasta montada (o
+>   Grafana rodando passaria a ver uma pasta vazia): agora `rsync --delete` e os três recriados sempre, e a conferência
+>   final pede o painel (`/painel/api/dashboards/uid/foil`), não só a saúde; (2) o anônimo consulta o que quiser pela
+>   API do Grafana: meio núcleo no máximo para cada um dos três, `--query.max-concurrency=2` no Prometheus e resposta
+>   de fonte com até 5 MB; (3) o Grafana público saiu da rede do Redpanda (sem senha): rede própria
+>   `foil_observabilidade` com Jaeger, Prometheus, Grafana e os três serviços; (4) só os plugins Prometheus e Jaeger
+>   (eram 13 processos); (5) "Atraso agora" com o mesmo filtro do gráfico.
+> - O link da aba "Por dentro" abre só o painel do trace (`viewPanel`), com o intervalo cobrindo a última hora ou desde
+>   1 minuto antes do pedido.
 
 Depois da fase 9: currículo, portfólio, perfil e guia (`/atualizar-os-quatro`).
 

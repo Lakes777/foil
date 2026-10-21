@@ -30,7 +30,7 @@ class EstoqueSaudeTest {
 		assertThat(corpo.get("status").asString()).isEqualTo("ok");
 		assertThat(corpo.get("banco").asString()).isEqualTo("ok");
 		assertThat(corpo.get("kafka").asString()).isEqualTo("ok");
-		assertThat(corpo.get("migracao").asString()).isEqualTo("7");
+		assertThat(corpo.get("migracao").asString()).isEqualTo("8");
 	}
 
 	@Test

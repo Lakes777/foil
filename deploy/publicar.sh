@@ -2,6 +2,7 @@
 # Publica uma versão nova na VM: monta as quatro imagens aqui (para ARM), manda pela conexão SSH, sobe na ordem
 # (Redpanda, pagamentos, depois estoque e pedidos) e confere a saúde. A VM não precisa do código, do JDK nem do
 # Node, só do Docker. As migrações rodam na partida de cada serviço, com o usuário dono do banco dele.
+# Fase 9: Jaeger e Prometheus sobem junto com o Redpanda (os serviços já nascem mandando traces), o Grafana por último.
 # Uso: deploy/publicar.sh   (a primeira vez: deploy/preparar-vm.sh antes)
 set -euo pipefail
 
@@ -36,6 +37,12 @@ echo "Enviando para a VM (comprimidas)..."
 docker save "foil-pedidos:$commit" "foil-estoque:$commit" "foil-pagamentos:$commit" "foil-web:$commit" \
 	| gzip | "${SSH[@]}" "$VM" "gunzip | docker load -q"
 scp -q -i "$CHAVE_SSH" deploy/compose.yaml "$VM:foil/"
+# Fase 9: as configs do Jaeger, do Prometheus e do Grafana (painel incluso); o que saiu do repositório sai da VM
+# também. rsync e não "apagar e copiar": a pasta é montada nos contêineres, e uma pasta recriada some de dentro de
+# quem já está rodando (o Grafana ficaria com o painel vazio)
+rsync -a --delete -e "ssh -i $CHAVE_SSH -o BatchMode=yes" deploy/observabilidade/ "$VM:foil/observabilidade/"
+# A senha do admin do Grafana (ninguém entra com ela: o login está desligado), gerada NA VM na primeira vez
+"${SSH[@]}" "$VM" "grep -q '^FOIL_GRAFANA_SENHA=' foil/.env || (umask 077; echo \"FOIL_GRAFANA_SENHA=\$(openssl rand -hex 24)\" >> foil/.env)"
 
 # Espera um contêiner ficar healthy (até ~3 min: três JVMs disputam um núcleo na partida)
 esperar() {
@@ -51,14 +58,21 @@ esperar() {
 
 echo "Subindo na ordem..."
 "${SSH[@]}" "$VM" "for n in pedidos estoque pagamentos web; do docker tag foil-\$n:$commit foil-\$n:latest; done \
-	&& cd foil && docker compose up -d redpanda"
+	&& cd foil && docker compose up -d redpanda jaeger prometheus"
 esperar redpanda
+esperar jaeger
+esperar prometheus
 # Pagamentos antes de pedidos: um pagamentos antigo mandaria o CobrarPedido novo para a fila de mortos (SPEC §7)
 "${SSH[@]}" "$VM" "cd foil && docker compose up -d pagamentos"
 esperar pagamentos
 "${SSH[@]}" "$VM" "cd foil && docker compose up -d --remove-orphans"
 esperar estoque
 esperar pedidos
+# Os três só leem a configuração na partida: recriados sempre, senão um painel ou um alvo novo não chega
+"${SSH[@]}" "$VM" "cd foil && docker compose up -d --force-recreate jaeger prometheus grafana"
+esperar jaeger
+esperar prometheus
+esperar grafana
 
 # O Caddy é do Beacon e serve os outros sites também. Com o foil.caddy errado, o reload recusa e segue com a
 # configuração antiga; o arquivo ruim não pode ficar na pasta, senão derrubaria todos no próximo reinício. Numa
@@ -82,13 +96,15 @@ for _ in $(seq 1 40); do
 	if [ "$(codigo /)" = 200 ] && [ "$(codigo /api/estoque/vitrine)" = 200 ]; then
 		# O que a interface usa passa; a fila de mortos não sai da VM; truque de caminho é recusado
 		lancamentos=$(codigo /api/pedidos/lancamentos)
+		# O painel carregou do arquivo (não só o Grafana de pé)
+		painel=$(codigo /painel/api/dashboards/uid/foil)
 		mortos=$(codigo /api/pedidos/mortos)
 		truque=$(codigo '/api/pedidos/pedidos/x/..%2f..%2fmortos')
-		if [ "$lancamentos" = 200 ] && [ "$mortos" = 404 ] && [ "$truque" = 400 ]; then
+		if [ "$lancamentos" = 200 ] && [ "$mortos" = 404 ] && [ "$truque" = 400 ] && [ "$painel" = 200 ]; then
 			echo "No ar: https://$DOMINIO ($commit)"
 			exit 0
 		fi
-		echo "Respondeu, mas as rotas não estão como deviam: lancamentos $lancamentos (200), mortos $mortos (404), truque $truque (400)." >&2
+		echo "Respondeu, mas as rotas não estão como deviam: lancamentos $lancamentos (200), mortos $mortos (404), truque $truque (400), painel $painel (200)." >&2
 		exit 1
 	fi
 	sleep 3

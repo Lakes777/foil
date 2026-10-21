@@ -1,7 +1,8 @@
 # Desenvolvimento: Postgres e Redpanda para rodar os serviços no PC.
 #   docker compose up -d
 #   ./mvnw -pl estoque spring-boot:run -Dspring-boot.run.profiles=dev
-# Portas diferentes das de outros projetos (Postgres 5434, Kafka 19092, console 8090).
+# Portas diferentes das de outros projetos (Postgres 5434, Kafka 19092, console 8090; fase 9: Jaeger 16686/4318,
+# Prometheus 9095, Grafana 3005).
 services:
   banco:
     image: postgres:17-alpine
@@ -36,6 +37,53 @@ services:
       - "127.0.0.1:8090:8080"
     depends_on:
       - redpanda
+
+  # Fase 9: a mesma observabilidade da VM (configs em deploy/observabilidade), com o Prometheus lendo os serviços que
+  # rodam no PC. Grafana em http://localhost:5195/painel/ (o Vite repassa) ou direto na 3005.
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    command: ["--config", "/etc/jaeger/jaeger.yaml"]
+    volumes:
+      - ./deploy/observabilidade/jaeger:/etc/jaeger:ro
+    ports:
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:16686:16686"
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=1d"]
+    volumes:
+      - ./dev/prometheus:/etc/prometheus:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:9095:9090"
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SERVER_ROOT_URL: http://localhost:5195/painel/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN: "true"
+      # Medido em 21/10/2026: ~210 MB só do Grafana (192 MB = morto por falta de memória). Alertas e plugins
+      # pré-instalados desligados: o painel não usa nenhum
+      GF_UNIFIED_ALERTING_ENABLED: "false"
+      GF_ALERTING_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # Só Prometheus e Jaeger: cada fonte embutida é um processo próprio (13 rodando, medido em 21/10/2026)
+      GF_PLUGINS_DISABLE_PLUGINS: loki,mssql,mysql,opentsdb,grafana-pyroscope-datasource,tempo,zipkin,stackdriver,elasticsearch,influxdb,grafana-postgresql-datasource
+      GOMEMLIMIT: 220MiB
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/foil.json
+    volumes:
+      # Pastas, e não arquivos soltos: arquivo regravado (novo inode) some de uma montagem de arquivo
+      - ./deploy/observabilidade/grafana/fontes:/etc/grafana/provisioning/datasources:ro
+      - ./deploy/observabilidade/grafana/paineis:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "127.0.0.1:3005:3000"
 
 volumes:
   banco:

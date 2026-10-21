@@ -20,6 +20,21 @@ const LINHAS = 60;
 const LOTE_MS = 250;
 /** Quantos pedidos a aba lembra para poder "seguir outro". */
 const PEDIDOS_LEMBRADOS = 200;
+/** O painel do Grafana (fase 9), no mesmo endereço: o Caddy (e o Vite, em dev) leva /painel até ele. */
+const PAINEL = '/painel/d/foil/foil';
+
+/**
+ * O trace da saga no painel, aberto sozinho (viewPanel). O intervalo vai até agora e começa na última hora, ou um
+ * minuto antes do pedido, se ele for mais velho: o Grafana só procura o trace dentro do intervalo.
+ */
+export function linkDoTrace(pedido: Pedido, agora = Date.now()): string | null {
+  if (!pedido.traceId) return null;
+  const desde = Math.min(
+    Date.parse(pedido.criadoEm) - 60_000,
+    agora - 3_600_000,
+  );
+  return `${PAINEL}?var-trace=${pedido.traceId}&viewPanel=panel-10&from=${desde}&to=now`;
+}
 
 interface Linha {
   id: string;
@@ -159,7 +174,9 @@ export function PorDentro() {
           <b>pedidos</b>, <b>estoque</b> e <b>pagamentos</b> não se chamam
           direto: cada um grava o que fez e, na mesma transação, deixa o aviso
           numa caixa de saída (outbox), que segue pelo Kafka. Pedidos conduz a
-          saga e, se um passo falha, manda desfazer os anteriores.
+          saga e, se um passo falha, manda desfazer os anteriores. Vendas, sagas
+          desfeitas, atraso e o trace de cada compra ficam no{' '}
+          <a href={PAINEL}>painel de observabilidade</a> (Grafana, só leitura).
         </p>
 
         <div className="painel">
@@ -270,6 +287,7 @@ function Saga({
     : marcos;
   const gema = gemas.get(edicaoId ?? pedido?.edicaoId ?? -1);
   const passos = passosDaSaga(todos, pedido?.forma);
+  const trace = pedido ? linkDoTrace(pedido) : null;
 
   return (
     <div className="cartao saga-cartao">
@@ -320,7 +338,16 @@ function Saga({
             </li>
           ))}
         </ol>
-      ) : (
+      ) : null}
+      {pedidoId && trace ? (
+        <p className="saga-trace">
+          <a href={trace}>Ver o trace desta compra</a>
+          <small>
+            os três serviços, o Redpanda e o Fiel numa linha do tempo (Jaeger)
+          </small>
+        </p>
+      ) : null}
+      {pedidoId ? null : (
         <p className="saga-vazia">
           Assim que uma compra acontecer (a sua, na vitrine, ou a de um robô num
           lançamento), ela aparece aqui passo a passo.

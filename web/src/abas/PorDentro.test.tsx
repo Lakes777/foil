@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import type { EstadoDoPedido, Pedido } from '../api/tipos';
 import { EventSourceFalso } from '../teste/eventSourceFalso';
 import { responder } from '../teste/respostas';
-import { PorDentro } from './PorDentro';
+import { linkDoTrace, PorDentro } from './PorDentro';
 
 let n = 0;
 
@@ -54,6 +54,7 @@ function pedido(id: string, campos: Partial<Pedido> = {}): Pedido {
     qr: null,
     linkParaPagar: null,
     lancamentoId: 'lanc-1',
+    traceId: '0a8f5d9cce7ada68dcf116be428fbc5a',
     ...campos,
   };
 }
@@ -233,6 +234,42 @@ describe('Por dentro', () => {
         'Sem estoque',
       ),
     ).toBeInTheDocument();
+  });
+
+  it('leva ao trace da compra no painel, a partir de um minuto antes do pedido', async () => {
+    render(<PorDentro />);
+    act(() => doPedido('8f3a2c19-aaaa', 'RESERVANDO'));
+    await act(() => vi.advanceTimersByTimeAsync(250));
+
+    const link = await screen.findByRole('link', {
+      name: 'Ver o trace desta compra',
+    });
+    const href = new URL(link.getAttribute('href')!, 'http://loja');
+    expect(href.pathname).toBe('/painel/d/foil/foil');
+    expect(href.searchParams.get('var-trace')).toBe(
+      '0a8f5d9cce7ada68dcf116be428fbc5a',
+    );
+    expect(href.searchParams.get('viewPanel')).toBe('panel-10');
+    expect(
+      screen.getByRole('link', { name: 'painel de observabilidade' }),
+    ).toHaveAttribute('href', '/painel/d/foil/foil');
+  });
+
+  it('o intervalo cobre a última hora, ou desde um minuto antes de um pedido mais velho', () => {
+    const agora = Date.parse('2026-10-20T15:00:00Z');
+    const de = (criadoEm: string) =>
+      Number(
+        new URL(
+          linkDoTrace(pedido('x', { criadoEm }), agora)!,
+          'http://loja',
+        ).searchParams.get('from'),
+      );
+    expect(de('2026-10-20T14:50:00Z')).toBe(agora - 3_600_000);
+    expect(de('2026-10-20T12:00:00Z')).toBe(Date.parse('2026-10-20T11:59:00Z'));
+  });
+
+  it('pedido sem trace (de antes da fase 9) não ganha link', () => {
+    expect(linkDoTrace(pedido('x', { traceId: null }))).toBeNull();
   });
 
   it('sem eventos, explica o que vai aparecer', () => {

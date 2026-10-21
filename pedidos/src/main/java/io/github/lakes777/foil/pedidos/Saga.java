@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
@@ -16,7 +17,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import io.github.lakes777.foil.comum.eventos.Rastro;
 import io.github.lakes777.foil.comum.eventos.Saida;
 import io.github.lakes777.foil.contratos.Envelope;
 import io.github.lakes777.foil.contratos.EstoqueComandos.DevolverUnidade;
@@ -34,6 +38,8 @@ import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoEstornado;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoRecusado;
 import io.github.lakes777.foil.contratos.PedidosEventos.PedidoMudouDeEstado;
 import io.github.lakes777.foil.contratos.Topicos;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -48,7 +54,7 @@ public class Saga {
 
 	private static final String COLUNAS = """
 			select id, edicao_id, estado, motivo, preco_centavos, prazo, criado_em, atualizado_em, forma, qr,
-			link_para_pagar, lancamento_id from pedido
+			link_para_pagar, lancamento_id, traceparent from pedido
 			""";
 
 	private final JdbcClient jdbc;
@@ -65,7 +71,11 @@ public class Saga {
 
 	private final Duration prazoDaLiberacao;
 
-	Saga(JdbcClient jdbc, Saida saida, JsonMapper json, Clock relogio,
+	private final Rastro rastro;
+
+	private final MeterRegistry metricas;
+
+	Saga(JdbcClient jdbc, Saida saida, JsonMapper json, Clock relogio, Rastro rastro, MeterRegistry metricas,
 			@Value("${foil.pedidos.prazo-da-reserva:2m}") Duration prazoDaReserva,
 			@Value("${foil.pedidos.prazo-do-pagamento:5m}") Duration prazoDoPagamento,
 			@Value("${foil.pedidos.prazo-da-liberacao:1m}") Duration prazoDaLiberacao) {
@@ -76,6 +86,38 @@ public class Saga {
 		this.prazoDaReserva = prazoDaReserva;
 		this.prazoDoPagamento = prazoDoPagamento;
 		this.prazoDaLiberacao = prazoDaLiberacao;
+		this.rastro = rastro;
+		this.metricas = metricas;
+		zerarContadores();
+	}
+
+	/**
+	 * Cada combinação de estado final, motivo e origem nasce com zero na partida. Sem isso, a série só aparece na primeira
+	 * venda já valendo 1 (ou 10, num lançamento entre duas leituras do Prometheus), e o rate() e o increase() do painel
+	 * não contam esse começo: o gráfico de vendas por segundo ficava zerado com 20 vendas.
+	 */
+	private void zerarContadores() {
+		var finais = new ArrayList<String[]>();
+		finais.add(new String[] { Estado.CONFIRMADO.name(), null });
+		for (var m : ReservaRecusada.Motivo.values()) {
+			finais.add(new String[] { Estado.SEM_ESTOQUE.name(), m.name() });
+		}
+		for (var m : List.of("PRAZO_DA_RESERVA", "PRAZO_DO_PAGAMENTO")) {
+			finais.add(new String[] { Estado.CANCELADO.name(), m });
+		}
+		for (var m : PagamentoRecusado.Motivo.values()) {
+			finais.add(new String[] { Estado.CANCELADO.name(), "PAGAMENTO_" + m.name() });
+		}
+		for (var f : finais) {
+			for (var origem : List.of("loja", "robo")) {
+				contador(f[0], f[1], origem);
+			}
+		}
+	}
+
+	private Counter contador(String estado, String motivo, String origem) {
+		return metricas.counter("foil.pedidos.terminados", "estado", estado, "motivo",
+				motivo == null ? "nenhum" : motivo, "origem", origem);
 	}
 
 	/**
@@ -93,23 +135,34 @@ public class Saga {
 		return criar(edicaoId, forma, lancamentoId, null);
 	}
 
-	/** O da loja leva o visitante (o cookie), para aparecer em "Minhas gemas"; o dos robôs, null. */
+	/**
+	 * O da loja leva o visitante (o cookie), para aparecer em "Minhas gemas"; o dos robôs, null. Cada pedido abre o
+	 * trace da saga dele (o da loja, dentro do POST; o de cada robô, um trace só dele) e o guarda: tudo o que a saga
+	 * mandar depois, até um prazo vencido, sai nesse trace.
+	 */
 	@Transactional
 	public Pedido criar(long edicaoId, Forma forma, UUID lancamentoId, UUID visitante) {
 		var id = UUID.randomUUID();
-		jdbc.sql("""
-				insert into pedido (id, edicao_id, estado, prazo, forma, lancamento_id, visitante)
-				values (:id, :edicao, 'RESERVANDO', :prazo, :forma, :lancamento, :visitante)
-				""")
-			.param("id", id)
-			.param("edicao", edicaoId)
-			.param("forma", forma.name())
-			.param("prazo", daquiA(prazoDaReserva))
-			.param("lancamento", lancamentoId)
-			.param("visitante", visitante)
-			.update();
-		mandar(Topicos.ESTOQUE_COMANDOS, id, ReservarUnidade.TIPO, ReservarUnidade.VERSAO, new ReservarUnidade(edicaoId));
-		contar(id, Estado.RESERVANDO, null, edicaoId);
+		try (var span = lancamentoId == null ? rastro.filho("pedido") : rastro.novoTrace("pedido do robô")) {
+			rastro.marcar("foil.pedido", id.toString());
+			rastro.marcar("foil.origem", origem(lancamentoId));
+			var trace = rastro.atual();
+			jdbc.sql("""
+					insert into pedido (id, edicao_id, estado, prazo, forma, lancamento_id, visitante, traceparent)
+					values (:id, :edicao, 'RESERVANDO', :prazo, :forma, :lancamento, :visitante, :trace)
+					""")
+				.param("id", id)
+				.param("edicao", edicaoId)
+				.param("forma", forma.name())
+				.param("prazo", daquiA(prazoDaReserva))
+				.param("lancamento", lancamentoId)
+				.param("visitante", visitante)
+				.param("trace", trace)
+				.update();
+			mandar(Topicos.ESTOQUE_COMANDOS, id, trace, ReservarUnidade.TIPO, ReservarUnidade.VERSAO,
+					new ReservarUnidade(edicaoId));
+			contar(id, trace, Estado.RESERVANDO, null, edicaoId);
+		}
 		return buscar(id).orElseThrow();
 	}
 
@@ -134,9 +187,9 @@ public class Saga {
 						.param("prazo", daquiA(prazoDoPagamento))
 						.param("id", p.id())
 						.update();
-					mandar(Topicos.PAGAMENTOS_COMANDOS, p.id(), CobrarPedido.TIPO, CobrarPedido.VERSAO,
-							new CobrarPedido(dados.precoCentavos(), p.forma()));
-					contar(p.id(), Estado.AGUARDANDO_PAGAMENTO, null, p.edicaoId());
+					mandar(Topicos.PAGAMENTOS_COMANDOS, p.id(), p.traceparent(), CobrarPedido.TIPO,
+							CobrarPedido.VERSAO, new CobrarPedido(dados.precoCentavos(), p.forma()));
+					contar(p.id(), p.traceparent(), Estado.AGUARDANDO_PAGAMENTO, null, p.edicaoId());
 				}
 				else {
 					ignorar(p, evento);
@@ -274,15 +327,15 @@ public class Saga {
 				qr = null, link_para_pagar = null where id = :id
 				""").param("motivo", motivo).param("prazo", daquiA(prazoDaLiberacao)).param("id", p.id()).update();
 		if (cancelarCobranca) {
-			mandar(Topicos.PAGAMENTOS_COMANDOS, p.id(), CancelarCobranca.TIPO, CancelarCobranca.VERSAO,
-					new CancelarCobranca());
+			mandar(Topicos.PAGAMENTOS_COMANDOS, p.id(), p.traceparent(), CancelarCobranca.TIPO,
+					CancelarCobranca.VERSAO, new CancelarCobranca());
 		}
 		devolver(p);
-		contar(p.id(), Estado.LIBERANDO, motivo, p.edicaoId());
+		contar(p.id(), p.traceparent(), Estado.LIBERANDO, motivo, p.edicaoId());
 	}
 
 	private void devolver(Pedido p) {
-		mandar(Topicos.ESTOQUE_COMANDOS, p.id(), DevolverUnidade.TIPO, DevolverUnidade.VERSAO,
+		mandar(Topicos.ESTOQUE_COMANDOS, p.id(), p.traceparent(), DevolverUnidade.TIPO, DevolverUnidade.VERSAO,
 				new DevolverUnidade(p.edicaoId()));
 	}
 
@@ -303,7 +356,26 @@ public class Saga {
 				""").param("estado", fim.name()).param("motivo", motivo).param("edicao", p.edicaoId())
 			.param("id", p.id())
 			.update();
-		contar(p.id(), fim, motivo, p.edicaoId());
+		contar(p.id(), p.traceparent(), fim, motivo, p.edicaoId());
+		terminado(p, fim, motivo);
+	}
+
+	/**
+	 * Métrica do Grafana (vendas/s, sagas desfeitas por motivo), contada só depois do commit: uma transação desfeita
+	 * (o evento volta e é processado de novo) não conta duas vezes.
+	 */
+	private void terminado(Pedido p, Estado fim, String motivo) {
+		var contador = contador(fim.name(), motivo, origem(p.lancamentoId()));
+		TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+			@Override
+			public void afterCommit() {
+				contador.increment();
+			}
+		});
+	}
+
+	private static String origem(UUID lancamentoId) {
+		return lancamentoId == null ? "loja" : "robo";
 	}
 
 	private void ignorar(Pedido p, Envelope evento) {
@@ -314,13 +386,14 @@ public class Saga {
 		return jdbc.sql(COLUNAS + "where id = :id for update").param("id", id).query(Pedido.class).optional();
 	}
 
-	private void mandar(String topico, UUID pedido, String tipo, int versao, Object dados) {
-		saida.registrar(topico, Envelope.novo(tipo, versao, pedido, json.valueToTree(dados), relogio));
+	/** {@code trace}: o da saga, guardado no pedido (ver {@link Saida#registrar(String, Envelope, String)}). */
+	private void mandar(String topico, UUID pedido, String trace, String tipo, int versao, Object dados) {
+		saida.registrar(topico, Envelope.novo(tipo, versao, pedido, json.valueToTree(dados), relogio), trace);
 	}
 
 	/** Cada passo vai para pedidos.eventos (painel ao vivo e observabilidade). */
-	private void contar(UUID pedido, Estado estado, String motivo, long edicaoId) {
-		mandar(Topicos.PEDIDOS_EVENTOS, pedido, PedidoMudouDeEstado.TIPO, PedidoMudouDeEstado.VERSAO,
+	private void contar(UUID pedido, String trace, Estado estado, String motivo, long edicaoId) {
+		mandar(Topicos.PEDIDOS_EVENTOS, pedido, trace, PedidoMudouDeEstado.TIPO, PedidoMudouDeEstado.VERSAO,
 				new PedidoMudouDeEstado(estado.name(), motivo, edicaoId));
 	}
 

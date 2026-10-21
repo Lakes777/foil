@@ -1,0 +1,44 @@
+# Jaeger 2 (fase 9): recebe os traces por OTLP (HTTP 4318) direto dos serviços, sem OTel Collector no meio, e guarda
+# na memória só os últimos 2.000 (o mais velho sai; reiniciar apaga tudo, de propósito: é demonstração). A consulta
+# (16686) só é lida pelo Grafana, pela rede interna; nada daqui sai da VM.
+service:
+  extensions: [jaeger_storage, jaeger_query, healthcheckv2]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter]
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: none
+
+extensions:
+  healthcheckv2:
+    use_v2: true
+    http:
+      endpoint: 0.0.0.0:13133
+  jaeger_query:
+    storage:
+      traces: memoria
+    http:
+      endpoint: 0.0.0.0:16686
+  jaeger_storage:
+    backends:
+      memoria:
+        memory:
+          max_traces: 2000
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: memoria

@@ -31,12 +31,15 @@ public class PublicadorDaSaida {
 
 	private final KafkaTemplate<String, String> kafka;
 
-	public PublicadorDaSaida(JdbcClient jdbc, KafkaTemplate<String, String> kafka) {
+	private final Rastro rastro;
+
+	public PublicadorDaSaida(JdbcClient jdbc, KafkaTemplate<String, String> kafka, Rastro rastro) {
 		this.jdbc = jdbc;
 		this.kafka = kafka;
+		this.rastro = rastro;
 	}
 
-	private record Pendente(long seq, String topico, String chave, String envelope) {
+	private record Pendente(long seq, String topico, String chave, String envelope, String traceparent) {
 	}
 
 	/**
@@ -53,7 +56,7 @@ public class PublicadorDaSaida {
 			return 0;
 		}
 		var pendentes = jdbc.sql("""
-				select seq, topico, chave, envelope from saida
+				select seq, topico, chave, envelope, traceparent from saida
 				where publicado_em is null order by seq limit :lote
 				""").param("lote", LOTE).query(Pendente.class).list();
 		var travados = new HashSet<String>();
@@ -62,7 +65,8 @@ public class PublicadorDaSaida {
 			if (travados.contains(p.chave())) {
 				continue;
 			}
-			try {
+			// O envio entra no trace de quem gravou: o KafkaTemplate leva o traceparent no cabeçalho da mensagem
+			try (var escopo = rastro.reabrir(p.traceparent(), "saida " + p.topico())) {
 				kafka.send(p.topico(), p.chave(), p.envelope()).get(PRAZO.toMillis(), TimeUnit.MILLISECONDS);
 			}
 			catch (InterruptedException e) {

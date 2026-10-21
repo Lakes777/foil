@@ -1,0 +1,14 @@
+# Prometheus de desenvolvimento: os serviços rodam no PC (fora do Docker). Na VM: deploy/observabilidade/prometheus/.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: foil
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8091"]
+        labels: { servico: pedidos }
+      - targets: ["host.docker.internal:8092"]
+        labels: { servico: estoque }
+      - targets: ["host.docker.internal:8093"]
+        labels: { servico: pagamentos }

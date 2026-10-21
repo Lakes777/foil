@@ -49,6 +49,8 @@ export interface Pedido {
   qr: string | null;
   linkParaPagar: string | null;
   lancamentoId: string | null;
+  /** O id do trace da saga (fase 9): o painel do Grafana mostra o caminho inteiro da compra. */
+  traceId: string | null;
 }
 
 /** Uma compra deste navegador; `unidade` só nos confirmados (a ordem entre os confirmados da edição). */

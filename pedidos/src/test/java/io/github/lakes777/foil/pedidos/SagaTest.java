@@ -16,8 +16,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import io.github.lakes777.foil.comum.ConteineresDeTeste;
+import io.github.lakes777.foil.comum.eventos.Rastro;
 import io.github.lakes777.foil.contratos.Envelope;
 import io.github.lakes777.foil.contratos.EstoqueEventos.ReservaRecusada;
 import io.github.lakes777.foil.contratos.EstoqueEventos.UnidadeDevolvida;
@@ -27,6 +29,7 @@ import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido.Forma;
 import io.github.lakes777.foil.contratos.PagamentosEventos.CobrancaCriada;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoAprovado;
 import io.github.lakes777.foil.contratos.PagamentosEventos.PagamentoRecusado;
+import io.micrometer.core.instrument.MeterRegistry;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -59,6 +62,15 @@ class SagaTest {
 
 	@Autowired
 	RelogioDeTeste relogio;
+
+	@Autowired
+	Rastro rastro;
+
+	@Autowired
+	MeterRegistry metricas;
+
+	@Autowired
+	TransactionTemplate transacao;
 
 	private void chega(UUID pedido, String tipo, Object dados) {
 		saga.aoReceber(Envelope.novo(tipo, 1, pedido, json.valueToTree(dados), Clock.systemUTC()));
@@ -289,6 +301,85 @@ class SagaTest {
 		chega(UUID.randomUUID(), PagamentoAprovado.TIPO, new PagamentoAprovado(1000));
 
 		assertThat(pedido(p.id()).estado()).isEqualTo(Estado.RESERVANDO);
+	}
+
+
+	/** Os ids de trace de tudo o que a saga gravou na saída para o pedido, na ordem. */
+	private List<String> tracesNaSaida(UUID pedido) {
+		return jdbc.sql("select traceparent from saida where chave = :c order by seq")
+			.param("c", pedido.toString())
+			.query((rs, i) -> Rastro.idDoTrace(rs.getString("traceparent")))
+			.list();
+	}
+
+	/**
+	 * Fase 9: a saga inteira num trace só, inclusive o que sai de um prazo vencido (fora de qualquer trace).
+	 * Contraprova: mandar sem o trace do pedido deixa os passos depois do primeiro sem trace.
+	 */
+	@Test
+	void todoPassoDaSagaSaiNoTraceDoPedido() {
+		var p = saga.criar(7, Forma.SIMULADA);
+		chega(p.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1000));
+		relogio.avancar(Duration.ofMinutes(5).plusSeconds(1));
+		saga.vencerPrazos();
+		chega(p.id(), UnidadeDevolvida.TIPO, new UnidadeDevolvida(true));
+
+		var trace = pedido(p.id()).traceId();
+		assertThat(trace).hasSize(32);
+		// Reservar, Cobrar, Cancelar, Devolver e os 4 passos no painel
+		assertThat(tracesNaSaida(p.id())).hasSize(8).containsOnly(trace);
+	}
+
+	/** Contraprova: com rastro.filho para os robôs, todos caem no trace de quem os soltou. */
+	@Test
+	void cadaRoboTemUmTraceSoDele() {
+		var lancamento = UUID.randomUUID();
+		jdbc.sql("""
+				insert into lancamento (id, estado, robos, pedido_em, terminou_em)
+				values (:id, 'ENCERRADO', 2, now(), now())
+				""").param("id", lancamento).update();
+		try (var quemSolta = rastro.novoTrace("rodada")) {
+			var deFora = Rastro.idDoTrace(rastro.atual());
+			var um = saga.criar(7, Forma.SIMULADA, lancamento);
+			var outro = saga.criar(7, Forma.SIMULADA, lancamento);
+			assertThat(List.of(um.traceId(), outro.traceId())).doesNotContain(deFora).doesNotHaveDuplicates();
+			// O da loja fica no trace de quem chamou (o POST)
+			assertThat(saga.criar(7, Forma.SIMULADA).traceId()).isEqualTo(deFora);
+		}
+	}
+
+	private double terminados(String estado, String motivo) {
+		var contador = metricas.find("foil.pedidos.terminados")
+			.tags("estado", estado, "motivo", motivo, "origem", "loja")
+			.counter();
+		return contador == null ? 0 : contador.count();
+	}
+
+	/**
+	 * A métrica do painel conta depois do commit: uma confirmação desfeita (o evento volta e é processado de novo) não
+	 * conta duas vezes. Contraprova: contar direto no terminar() conta a desfeita.
+	 */
+	@Test
+	void terminadoSoContaDepoisDoCommit() {
+		var desfeito = saga.criar(7, Forma.SIMULADA);
+		chega(desfeito.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1000));
+		var antes = terminados("CONFIRMADO", "nenhum");
+
+		transacao.executeWithoutResult(t -> {
+			chega(desfeito.id(), PagamentoAprovado.TIPO, new PagamentoAprovado(1000));
+			t.setRollbackOnly();
+		});
+		assertThat(terminados("CONFIRMADO", "nenhum")).isEqualTo(antes);
+
+		chega(desfeito.id(), PagamentoAprovado.TIPO, new PagamentoAprovado(1000));
+		assertThat(terminados("CONFIRMADO", "nenhum")).isEqualTo(antes + 1);
+
+		var recusado = saga.criar(7, Forma.SIMULADA);
+		var recusados = terminados("CANCELADO", "PAGAMENTO_RECUSADO");
+		chega(recusado.id(), UnidadeReservada.TIPO, new UnidadeReservada(7, 1000));
+		chega(recusado.id(), PagamentoRecusado.TIPO, new PagamentoRecusado(PagamentoRecusado.Motivo.RECUSADO));
+		chega(recusado.id(), UnidadeDevolvida.TIPO, new UnidadeDevolvida(true));
+		assertThat(terminados("CANCELADO", "PAGAMENTO_RECUSADO")).isEqualTo(recusados + 1);
 	}
 
 }

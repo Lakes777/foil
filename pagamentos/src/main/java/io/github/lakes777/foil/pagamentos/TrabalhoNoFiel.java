@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import io.github.lakes777.foil.comum.eventos.Rastro;
 import io.github.lakes777.foil.pagamentos.ClienteDoFiel.FalhaPassageira;
 import io.github.lakes777.foil.pagamentos.ClienteDoFiel.Resposta;
 import io.github.lakes777.foil.pagamentos.CobrancasNoFiel.Trabalho;
@@ -34,11 +35,14 @@ class TrabalhoNoFiel {
 
 	private final Duration conferirACada;
 
+	private final Rastro rastro;
+
 	TrabalhoNoFiel(CobrancasNoFiel cobrancas, ClienteDoFiel fiel,
-			@Value("${foil.fiel.conferir-a-cada:15s}") Duration conferirACada) {
+			@Value("${foil.fiel.conferir-a-cada:15s}") Duration conferirACada, Rastro rastro) {
 		this.cobrancas = cobrancas;
 		this.fiel = fiel;
 		this.conferirACada = conferirACada;
+		this.rastro = rastro;
 	}
 
 	/** Um lote; devolve quantos pegou (lote cheio = provavelmente tem mais). */
@@ -48,7 +52,9 @@ class TrabalhoNoFiel {
 		}
 		var lote = cobrancas.reservar(LOTE);
 		for (var t : lote) {
-			try {
+			// A conversa com o Fiel aparece no trace da saga; a conferência a cada 15 s, não (seria um span por rodada)
+			var conferencia = "pendente".equals(t.situacao()) && t.fielId() != null;
+			try (var span = rastro.reabrir(conferencia ? null : t.traceparent(), nomeNoTrace(t))) {
 				fazer(t);
 			}
 			catch (FalhaPassageira erro) {
@@ -63,6 +69,14 @@ class TrabalhoNoFiel {
 			}
 		}
 		return lote.size();
+	}
+
+	private static String nomeNoTrace(Trabalho t) {
+		return switch (t.situacao()) {
+			case "pendente" -> "Fiel: criar cobrança";
+			case "cancelando" -> "Fiel: cancelar cobrança";
+			default -> "Fiel: estornar";
+		};
 	}
 
 	private void fazer(Trabalho t) {

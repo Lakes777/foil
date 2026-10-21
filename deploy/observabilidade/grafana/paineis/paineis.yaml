@@ -1,0 +1,10 @@
+# O painel do Foil vem do repositório (foil.json); mudança pela tela não é salva.
+apiVersion: 1
+providers:
+  - name: foil
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

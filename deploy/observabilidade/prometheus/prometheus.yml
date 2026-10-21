@@ -1,0 +1,16 @@
+# Prometheus na VM (fase 9): lê o /actuator/prometheus dos três serviços pela rede interna do Foil a cada 15 s.
+# Cada alvo leva o rótulo "servico", que os painéis do Grafana usam.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: foil
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["pedidos:8091"]
+        labels: { servico: pedidos }
+      - targets: ["estoque:8092"]
+        labels: { servico: estoque }
+      - targets: ["pagamentos:8093"]
+        labels: { servico: pagamentos }

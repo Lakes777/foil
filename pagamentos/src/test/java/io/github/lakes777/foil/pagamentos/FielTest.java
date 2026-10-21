@@ -1,6 +1,7 @@
 package io.github.lakes777.foil.pagamentos;
 
 import static io.github.lakes777.foil.comum.LeitorDeTopico.doPedido;
+import static io.github.lakes777.foil.comum.LeitorDeTopico.traceDa;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
@@ -32,6 +33,7 @@ import org.testcontainers.redpanda.RedpandaContainer;
 
 import io.github.lakes777.foil.comum.ConteineresDeTeste;
 import io.github.lakes777.foil.comum.LeitorDeTopico;
+import io.github.lakes777.foil.comum.eventos.Rastro;
 import io.github.lakes777.foil.contratos.Envelope;
 import io.github.lakes777.foil.contratos.PagamentosComandos.CancelarCobranca;
 import io.github.lakes777.foil.contratos.PagamentosComandos.CobrarPedido;
@@ -96,6 +98,9 @@ class FielTest {
 
 	@Autowired
 	AvisosDoFiel avisos;
+
+	@Autowired
+	Rastro rastro;
 
 	private LeitorDeTopico eventos;
 
@@ -169,6 +174,29 @@ class FielTest {
 		assertThat(json.treeToValue(aprovado.getFirst().dados(), PagamentoAprovado.class).valorCentavos())
 			.isEqualTo(1990);
 		assertThat(situacao(pedido)).isEqualTo("aprovada");
+	}
+
+	/**
+	 * Fase 9: o trabalhador (fora de qualquer trace) e o aviso do Fiel (num trace próprio, o do POST do Fiel)
+	 * respondem no trace da saga, guardado na cobrança. Contraprova: responder sem o trace guardado põe cada resposta
+	 * num trace novo.
+	 */
+	@Test
+	void respostasDoFielSaemNoTraceDaSaga() throws Exception {
+		var pedido = UUID.randomUUID();
+		String trace;
+		try (var saga = rastro.novoTrace("saga")) {
+			trace = Rastro.idDoTrace(rastro.atual());
+			cobrarNoFiel(pedido, 1990);
+		}
+		var criada = eventos.ler(doPedido(pedido).and(r -> CobrancaCriada.TIPO.equals(tipoDe(r))), 1, PRAZO);
+		assertThat(criada).hasSize(1);
+		assertThat(traceDa(criada.getFirst())).isEqualTo(trace);
+
+		assertThat(FIEL.pagar(pedido, true)).isEqualTo(204);
+		var aprovado = eventos.ler(doPedido(pedido).and(r -> PagamentoAprovado.TIPO.equals(tipoDe(r))), 1, PRAZO);
+		assertThat(aprovado).hasSize(1);
+		assertThat(traceDa(aprovado.getFirst())).isEqualTo(trace);
 	}
 
 	@Test

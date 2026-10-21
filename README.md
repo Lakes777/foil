@@ -7,7 +7,7 @@ compradores disputam 10 unidades **sem nunca vender a mais**. O pagamento passa 
 
 ![Vitrine, luz negra, um lançamento de 200 robôs ao vivo, os eventos por dentro e o certificado da gema comprada](docs/demo.gif)
 
-> Em construção, uma fase por vez. A especificação completa (decisões, fases e critérios de aceite) está em
+> Feito em 9 fases, uma por vez. A especificação completa (decisões, fases e critérios de aceite) está em
 > [docs/SPEC.md](docs/SPEC.md).
 
 ## Andamento
@@ -22,7 +22,7 @@ compradores disputam 10 unidades **sem nunca vender a mais**. O pagamento passa 
 | 6. Lançamento | 200 robôs contra 10 unidades, fila, limite por IP, ao vivo por SSE | feita |
 | 7. Interface | Vitrine, lançamento ao vivo, minhas gemas com inspetor 3D, eventos por dentro, luz negra | feita |
 | 8. Publicação | No ar em [foil.andrelagos.dev](https://foil.andrelagos.dev), limpeza das 4h10, um processador | feita |
-| 9. Observabilidade | OpenTelemetry, Prometheus, Grafana, Jaeger | |
+| 9. Observabilidade | Painel público em [/painel](https://foil.andrelagos.dev/painel/): vendas/s, sagas desfeitas, atraso do consumidor e o trace de cada compra | feita |
 
 ## Módulos
 
@@ -248,6 +248,38 @@ Uma função por aba, cada uma com endereço próprio (`#vitrine`, `#lancamento`
   edição de quem ainda não tem. Os testes do estoque rodam sem ela, com as próprias cartas.
 - A identidade ("joalheria à noite") saiu de um protótipo com 5 versões: [docs/prototipo-fase-7.html](docs/prototipo-fase-7.html).
 
+## Observabilidade
+
+O painel público ([foil.andrelagos.dev/painel](https://foil.andrelagos.dev/painel/), Grafana só de leitura, sem login)
+mostra vendas por segundo, sagas desfeitas por motivo, o atraso de cada consumidor e as compras da loja; cada compra
+abre o trace da saga inteira. A aba "Por dentro" da loja leva direto ao trace da compra que ela está seguindo.
+
+| | |
+|---|---|
+| ![O painel durante um lançamento](docs/painel.png) | ![O trace de uma compra paga pelo Fiel](docs/trace.png) |
+| **O painel** durante um lançamento: os robôs vendem 10 em lotes, o resto fica sem estoque ou é desfeito. | **Uma compra paga pelo Fiel** num trace só: o POST na loja, a reserva no estoque, a cobrança criada no Fiel e, 9 s depois, a aprovação que chegou pelo aviso do Fiel. |
+
+- **A outbox carrega o trace.** O evento sai da tabela `saida` depois, pela agenda do publicador, fora do pedido que o
+  gravou: sem cuidado, cada mensagem abriria um trace novo. Cada linha guarda o `traceparent` (W3C) de quem a gravou, e
+  o publicador reabre o trace por ele antes do `send()`; o KafkaTemplate leva o cabeçalho, e o consumidor do outro
+  serviço continua o mesmo trace. Contraprova: sem reabrir, os testes reprovam.
+- **O trace é do pedido, não de quem chega.** O pedido guarda o trace da saga quando nasce, e pagamentos o guarda na
+  cobrança. O prazo vencido (que roda fora de qualquer trace) e o aviso do Fiel (que chega num trace próprio, o do POST
+  do Fiel) respondem nele. Cada robô do lançamento abre um trace só dele.
+- **Sem ruído:** toda leitura (o `/saude`, a tela da compra perguntando pelo pedido a cada 1,5 s, o painel ao vivo), o
+  actuator e os agendamentos (o publicador roda a cada 100 ms) ficam fora dos traces. Toda saga começa num POST; com
+  100% amostrado, o resto empurraria o trace de quem comprou para fora do Jaeger em minutos.
+- **Métrica contada depois do commit:** uma confirmação desfeita (o evento volta e é processado de novo) não conta duas
+  vezes. Os contadores nascem com zero na partida: uma série que aparece já valendo 10 perde esse começo no `rate()`.
+- **Cabe na VM:** os serviços mandam OTLP direto ao Jaeger (sem OTel Collector), que guarda só os últimos 2.000 traces
+  na memória. O Prometheus guarda 3 dias e tem teto de consulta; os três têm meio núcleo no máximo (o Grafana é público,
+  e uma consulta pesada não pode parar os outros sites da VM). O Grafana 13 precisou de 320 MB: com 192 MB, foi morto
+  por falta de memória (medido), e roda só os plugins Prometheus e Jaeger. Jaeger e Prometheus não têm rota pública, e
+  o Grafana fica fora da rede do Redpanda.
+- **Jaeger 2.20:** a 2.21 tirou a API de busca antiga, e o Grafana 13 ainda busca traces por ela.
+- O ponta a ponta sobe o mesmo Jaeger da VM e confere que uma compra paga pelo Fiel vira um trace só, com os três
+  serviços e a conversa com o Fiel.
+
 ## No ar
 
 Na mesma VM ARM da Oracle (1 núcleo) que o Fiel e os outros projetos, atrás do Caddy dela (`deploy/`).
@@ -274,8 +306,8 @@ Na mesma VM ARM da Oracle (1 núcleo) que o Fiel e os outros projetos, atrás do
 
 ## Tecnologia
 
-Java 25 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · JUnit 5 ·
-Testcontainers · React 19 · TypeScript · Vite · Vitest · GitHub Actions
+Java 25 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · OpenTelemetry ·
+Prometheus · Grafana · Jaeger · JUnit 5 · Testcontainers · React 19 · TypeScript · Vite · Vitest · GitHub Actions
 
 ## Rodar
 
@@ -283,14 +315,15 @@ Precisa de Java 25, Node e Docker.
 
 ```bash
 dev/rodar-tudo.sh                  # tudo no PC: compose, o Fiel (repositório vizinho ../fiel), os 3 serviços e as telas
-                                   # loja em http://localhost:5195, Fiel em http://localhost:5190
+                                   # loja em http://localhost:5195, Fiel em http://localhost:5190, painel em /painel
 dev/rodar-tudo.sh parar
 
 ./mvnw verify                      # testes: sobe Postgres e Redpanda de verdade em contêineres (~5 min)
 cd web && npm ci && npm test       # testes da interface (Vitest)
 
-docker compose up -d               # Postgres (5434), Redpanda (19092) e o console do Redpanda (8090)
+docker compose up -d               # Postgres (5434), Redpanda (19092), console do Redpanda (8090), Jaeger (16686),
+                                   # Prometheus (9095) e Grafana (3005)
 ./mvnw install -DskipTests
 ./mvnw -pl estoque spring-boot:run -Dspring-boot.run.profiles=dev
-curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"7"}
+curl localhost:8092/saude          # {"servico":"estoque","status":"ok","banco":"ok","kafka":"ok","migracao":"8"}
 ```

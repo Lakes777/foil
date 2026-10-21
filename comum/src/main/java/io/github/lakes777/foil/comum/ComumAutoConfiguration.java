@@ -9,6 +9,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.config.TopicConfig;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.server.observation.ServerRequestObservationContext;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
@@ -29,8 +30,12 @@ import io.github.lakes777.foil.comum.eventos.EventosProcessados;
 import io.github.lakes777.foil.comum.eventos.Limpeza;
 import io.github.lakes777.foil.comum.eventos.Mortos;
 import io.github.lakes777.foil.comum.eventos.PublicadorDaSaida;
+import io.github.lakes777.foil.comum.eventos.Rastro;
 import io.github.lakes777.foil.comum.eventos.Saida;
 import io.github.lakes777.foil.contratos.Topicos;
+import io.micrometer.observation.ObservationPredicate;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import tools.jackson.databind.json.JsonMapper;
 
 /** O que os três serviços têm igual. Entra sozinho por estar no classpath. */
@@ -38,14 +43,45 @@ import tools.jackson.databind.json.JsonMapper;
 @Import({ SaudeController.class, ComumAutoConfiguration.Agendamento.class, MortosController.class })
 public class ComumAutoConfiguration {
 
+	/** Sem Tracer no contexto (tracing desligado), a outbox segue igual, só sem guardar trace. */
 	@Bean
-	Saida saida(JdbcClient jdbc, JsonMapper json) {
-		return new Saida(jdbc, json);
+	Rastro rastro(ObjectProvider<Tracer> tracer, ObjectProvider<Propagator> propagator) {
+		var t = tracer.getIfAvailable();
+		var p = propagator.getIfAvailable();
+		return t == null || p == null ? Rastro.desligado() : new Rastro(t, p);
 	}
 
 	@Bean
-	PublicadorDaSaida publicadorDaSaida(JdbcClient jdbc, KafkaTemplate<String, String> kafka) {
-		return new PublicadorDaSaida(jdbc, kafka);
+	Saida saida(JdbcClient jdbc, JsonMapper json, Rastro rastro) {
+		return new Saida(jdbc, json, rastro);
+	}
+
+	@Bean
+	PublicadorDaSaida publicadorDaSaida(JdbcClient jdbc, KafkaTemplate<String, String> kafka, Rastro rastro) {
+		return new PublicadorDaSaida(jdbc, kafka, rastro);
+	}
+
+	/**
+	 * Fora dos traces (e das métricas HTTP): toda leitura (GET), como o /saude do Docker e do Vigil, o Prometheus lendo
+	 * o actuator, o painel ao vivo e a tela da compra perguntando pelo pedido a cada 1,5 s; e os agendamentos (o
+	 * publicador roda a cada 100 ms). Com 100% amostrado e o Jaeger guardando só os últimos 2.000, eles empurravam o
+	 * trace de quem comprou para fora em minutos. Toda saga começa num POST.
+	 */
+	@Bean
+	ObservationPredicate semRuido() {
+		return (nome, contexto) -> {
+			if (nome.startsWith("tasks.scheduled")) {
+				return false;
+			}
+			if (contexto instanceof ServerRequestObservationContext pedido) {
+				return !ruidoso(pedido.getCarrier().getMethod(), pedido.getCarrier().getRequestURI());
+			}
+			return true;
+		};
+	}
+
+	static boolean ruidoso(String metodo, String caminho) {
+		return "GET".equals(metodo) || "HEAD".equals(metodo) || caminho.startsWith("/actuator");
 	}
 
 	@Bean

@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 
 /**
  * A interface chama /api/pedidos/* e /api/estoque/*. Em dev, o Vite tira o prefixo e repassa para os serviços
- * (portas de dev 8091 e 8092); na VM (fase 8), o Caddy faz o mesmo.
+ * (portas de dev 8091 e 8092); na VM (fase 8), o Caddy faz o mesmo. /painel é o Grafana (fase 9).
  */
 function servico(porta: number, prefixo: string) {
   return {
@@ -19,6 +19,8 @@ export default defineConfig({
     proxy: {
       '/api/pedidos': servico(8091, '/api/pedidos'),
       '/api/estoque': servico(8092, '/api/estoque'),
+      // Fase 9: o Grafana do compose.yaml já serve em /painel (sem tirar o prefixo), como atrás do Caddy na VM
+      '/painel': { target: 'http://localhost:3005' },
     },
   },
   test: {

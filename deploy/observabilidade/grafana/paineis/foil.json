@@ -1,0 +1,459 @@
+{
+  "uid": "foil",
+  "title": "Foil · por dentro",
+  "description": "Vendas, sagas desfeitas e atraso do consumidor da loja Foil, e o trace de uma saga de ponta a ponta.",
+  "tags": [
+    "foil"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "10s",
+  "schemaVersion": 41,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m"
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "trace",
+        "label": "Trace",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "O id do trace de uma compra (a aba Por dentro da loja traz o da sua; a tabela Compras da loja também)."
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "Voltar à loja",
+      "type": "link",
+      "url": "/",
+      "targetBlank": false,
+      "icon": "external link"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Vendas",
+      "description": "Pedidos CONFIRMADOS (robôs e loja). Na última hora.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(foil_pedidos_terminados_total{estado=\"CONFIRMADO\"}[1h])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Desfeitas",
+      "description": "Pedidos que reservaram uma unidade e a devolveram (pagamento recusado, prazo vencido): a compensação da saga. Na última hora.",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(foil_pedidos_terminados_total{estado=\"CANCELADO\"}[1h])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Sem estoque",
+      "description": "Pedidos recusados na reserva: a edição já tinha acabado. Nunca vende a mais. Na última hora.",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(foil_pedidos_terminados_total{estado=\"SEM_ESTOQUE\"}[1h])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Atraso agora",
+      "description": "Maior número de mensagens esperando para ser lidas, entre os três serviços.",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(kafka_consumer_fetch_manager_records_lag_max{client_id!=\"painel\"} >= 0) or vector(0)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Vendas por segundo",
+      "description": "Pedidos confirmados por segundo, dos robôs do lançamento e da loja.",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (origem) (rate(foil_pedidos_terminados_total{estado=\"CONFIRMADO\"}[$__rate_interval]))",
+          "legendFormat": "{{origem}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 12,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Sagas desfeitas, por motivo",
+      "description": "Cada desfeita devolveu a unidade ao estoque. PRAZO_DO_PAGAMENTO: o visitante não pagou em 5 minutos.",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (motivo) (increase(foil_pedidos_terminados_total{estado=\"CANCELADO\"}[$__rate_interval]))",
+          "legendFormat": "{{motivo}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Atraso do consumidor, por serviço",
+      "description": "Mensagens que chegaram ao Redpanda e o serviço ainda não leu. Sobe no lançamento e volta a zero.",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (servico) (kafka_consumer_fetch_manager_records_lag_max{client_id!=\"painel\"} >= 0)",
+          "legendFormat": "{{servico}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0,
+          "custom": {
+            "fillOpacity": 12,
+            "lineWidth": 2,
+            "axisSoftMax": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Mensagens processadas por segundo, por tópico",
+      "description": "Quanto cada tópico movimenta: comandos e eventos da saga.",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (messaging_source_name) (rate(spring_kafka_listener_seconds_count[$__rate_interval]))",
+          "legendFormat": "{{messaging_source_name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 0,
+            "lineWidth": 2
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Compras da loja (clique no trace para abrir)",
+      "description": "As últimas compras feitas pela loja; os robôs do lançamento ficam de fora da lista, mas também têm trace.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "jaeger",
+        "uid": "jaeger"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "search",
+          "service": "pedidos",
+          "operation": "pedido",
+          "limit": 20
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Trace ID"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Abrir este trace",
+                    "url": "/painel/d/foil/foil?var-trace=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 10,
+      "type": "traces",
+      "title": "Trace da saga: ${trace}",
+      "description": "Cada linha é um passo: o pedido nasce em pedidos, a reserva passa pelo estoque, a cobrança por pagamentos e pelo Fiel, e as respostas voltam pelo Redpanda.",
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 30
+      },
+      "datasource": {
+        "type": "jaeger",
+        "uid": "jaeger"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "${trace}"
+        }
+      ]
+    }
+  ]
+}

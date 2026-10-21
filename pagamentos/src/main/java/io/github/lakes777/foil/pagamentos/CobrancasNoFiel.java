@@ -38,8 +38,9 @@ class CobrancasNoFiel {
 	 */
 	static final Duration RESERVA = Duration.ofSeconds(3L * (3 + 5) * TrabalhoNoFiel.LOTE + 30);
 
-	/** Uma linha que o trabalhador pegou para fazer agora. */
-	record Trabalho(UUID pedidoId, String situacao, Integer valorCentavos, Long fielId, int tentativas) {
+	/** Uma linha que o trabalhador pegou para fazer agora; {@code traceparent}: o trace da saga (fase 9). */
+	record Trabalho(UUID pedidoId, String situacao, Integer valorCentavos, Long fielId, int tentativas,
+			String traceparent) {
 
 	}
 
@@ -65,7 +66,7 @@ class CobrancasNoFiel {
 	@Transactional
 	List<Trabalho> reservar(int quantos) {
 		var lote = jdbc.sql("""
-				select pedido_id, situacao, valor_centavos, fiel_id, tentativas from cobranca
+				select pedido_id, situacao, valor_centavos, fiel_id, tentativas, traceparent from cobranca
 				where forma = 'fiel' and situacao in ('pendente', 'cancelando', 'estornando') and proxima_em <= now()
 				order by proxima_em limit :quantos for update skip locked
 				""").param("quantos", quantos).query(Trabalho.class).list();
@@ -213,9 +214,18 @@ class CobrancasNoFiel {
 				""").param("situacao", situacao).param("agora", trabalhoAgora).param("pedido", pedidoId).update();
 	}
 
+	/**
+	 * No trace da saga, guardado na cobrança: quem chega aqui é o trabalhador (fora de qualquer trace) ou o aviso do
+	 * Fiel (num trace próprio, o do pedido HTTP do Fiel).
+	 */
 	private void responder(UUID pedidoId, String tipo, int versao, Object dados) {
+		var trace = jdbc.sql("select traceparent from cobranca where pedido_id = :pedido")
+			.param("pedido", pedidoId)
+			.query(String.class)
+			.optional()
+			.orElse(null);
 		saida.registrar(Topicos.PAGAMENTOS_EVENTOS,
-				Envelope.novo(tipo, versao, pedidoId, json.valueToTree(dados), relogio));
+				Envelope.novo(tipo, versao, pedidoId, json.valueToTree(dados), relogio), trace);
 	}
 
 }

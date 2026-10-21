@@ -3,7 +3,8 @@
 #
 # Só passa o que a interface usa (lista fechada): /api/pedidos/* e /api/estoque/* vão para os serviços sem o
 # prefixo (como o proxy do Vite em dev). O resto da API (a fila de mortos e o botão de reprocessar, o /saude e
-# qualquer rota nova) não sai da VM. /fiel/avisos é o aviso assinado do Fiel, para pagamentos.
+# qualquer rota nova) não sai da VM. /fiel/avisos é o aviso assinado do Fiel, para pagamentos. /painel é o Grafana
+# (fase 9), anônimo e só de leitura; o Prometheus e o Jaeger não têm rota nenhuma.
 DOMINIO_FOIL {
 	# Caminho com ";", "%" ou um segmento "." / "..": o Caddy limpa o caminho para comparar, mas o Tomcat recebe o
 	# original e o interpreta do jeito dele; algo como /api/pedidos/lancamentos/;/../mortos passaria pela lista e
@@ -43,6 +44,13 @@ DOMINIO_FOIL {
 		}
 		reverse_proxy foil-pagamentos:8093
 	}
+	# O Grafana já serve em /painel (serve_from_sub_path): nada de tirar o prefixo
+	handle /painel* {
+		request_body {
+			max_size 256KB
+		}
+		reverse_proxy foil-grafana:3000
+	}
 	handle /api/* {
 		respond 404
 	}
@@ -56,8 +64,10 @@ DOMINIO_FOIL {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		# Tudo do próprio endereço: nenhum script ou estilo inline
-		Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		-Server
 	}
+	# Tudo do próprio endereço: nenhum script ou estilo inline. O Grafana manda o CSP dele (com nonce), que este
+	# bloquearia
+	@foraDoPainel not path /painel*
+	header @foraDoPainel Content-Security-Policy "default-src 'self'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 }

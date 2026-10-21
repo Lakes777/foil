@@ -1,0 +1,20 @@
+# As duas fontes do painel, fixas (ninguém edita pela tela: o Grafana é público e só de leitura).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      # Uma consulta pesada vinda de fora não segura o único núcleo da VM
+      queryTimeout: 10s
+  - name: Jaeger
+    uid: jaeger
+    type: jaeger
+    access: proxy
+    url: http://jaeger:16686
+    editable: false

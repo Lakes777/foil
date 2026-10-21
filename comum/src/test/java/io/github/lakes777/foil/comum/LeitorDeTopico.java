@@ -1,5 +1,6 @@
 package io.github.lakes777.foil.comum;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +41,12 @@ public final class LeitorDeTopico implements AutoCloseable {
 	public List<ConsumerRecord<String, String>> lerDurante(Predicate<ConsumerRecord<String, String>> filtro,
 			Duration prazo) {
 		return ler(filtro, Integer.MAX_VALUE, prazo);
+	}
+
+	/** O id do trace que a mensagem levou no cabeçalho {@code traceparent} (W3C), ou null sem cabeçalho. */
+	public static String traceDa(ConsumerRecord<String, String> registro) {
+		var cabecalho = registro.headers().lastHeader("traceparent");
+		return cabecalho == null ? null : new String(cabecalho.value(), StandardCharsets.UTF_8).substring(3, 35);
 	}
 
 	/** Filtro pela chave (o id do pedido). */

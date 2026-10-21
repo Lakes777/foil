@@ -85,6 +85,7 @@ export function pedido(dados: Partial<Pedido> = {}): Pedido {
     qr: null,
     linkParaPagar: null,
     lancamentoId: null,
+    traceId: null,
     ...dados,
   };
 }

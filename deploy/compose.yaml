@@ -62,12 +62,15 @@ services:
       FOIL_BANCO_USUARIO: foil_pedidos
       FOIL_BANCO_SENHA: ${FOIL_SENHA_PEDIDOS:?falta no .env}
       FOIL_KAFKA: foil-redpanda:9092
+      # Fase 9: os traces vão direto ao Jaeger, pela rede interna
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       # O IP de quem chamou vem do X-Forwarded-For só quando o pedido chega do Caddy (a rede beacon_interna);
       # sem isso, todo mundo seria "o IP do Caddy" e dividiria o mesmo limite
       FOIL_CABECALHOS_DO_PROXY: native
       FOIL_PROXIES_CONFIAVEIS: ${FOIL_PROXIES_CONFIAVEIS:?falta no .env}
     networks:
       foil: {}
+      observabilidade: {}
       beacon:
         aliases: [foil-pedidos]
 
@@ -80,8 +83,11 @@ services:
       FOIL_BANCO_USUARIO: foil_estoque
       FOIL_BANCO_SENHA: ${FOIL_SENHA_ESTOQUE:?falta no .env}
       FOIL_KAFKA: foil-redpanda:9092
+      # Fase 9: os traces vão direto ao Jaeger, pela rede interna
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     networks:
       foil: {}
+      observabilidade: {}
       beacon:
         aliases: [foil-estoque]
 
@@ -94,6 +100,8 @@ services:
       FOIL_BANCO_USUARIO: foil_pagamentos
       FOIL_BANCO_SENHA: ${FOIL_SENHA_PAGAMENTOS:?falta no .env}
       FOIL_KAFKA: foil-redpanda:9092
+      # Fase 9: os traces vão direto ao Jaeger, pela rede interna
+      MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       # A API do Fiel por dentro da rede; os avisos pelo endereço público, porque o Fiel só entrega em https://
       # fora da rede interna (proteção contra SSRF dele). Sem a chave, a compra pela loja é recusada na hora
       FOIL_FIEL_API: http://fiel-api:8080
@@ -101,6 +109,7 @@ services:
       FOIL_FIEL_WEBHOOK: https://${DOMINIO:?falta no .env}/fiel/avisos
     networks:
       foil: {}
+      observabilidade: {}
       beacon:
         aliases: [foil-pagamentos]
 
@@ -118,12 +127,116 @@ services:
       beacon:
         aliases: [foil-web]
 
+  # Fase 9: observabilidade, numa rede própria (com os três serviços, sem o Redpanda). Jaeger e Prometheus só nela; o
+  # Grafana também na do Caddy, que o publica em /painel, anônimo e só de leitura (sem login nenhum: nem o admin entra
+  # pela tela). Os três com meio núcleo no máximo: o Grafana é público, e uma consulta pesada não para os outros sites
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    restart: unless-stopped
+    command: ["--config", "/etc/jaeger/jaeger.yaml"]
+    volumes:
+      - ./observabilidade/jaeger:/etc/jaeger:ro
+    mem_limit: 160m
+    logging: *logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:13133/status"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    # Um processo público (via Grafana) não pode tomar o único núcleo dos outros sites
+    cpus: "0.5"
+    networks:
+      observabilidade: {}
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=3d
+      - --storage.tsdb.retention.size=300MB
+      # Uma consulta pesada (o Grafana é público) não segura o único núcleo nem a memória
+      - --query.timeout=10s
+      - --query.max-samples=2000000
+      - --query.max-concurrency=2
+    volumes:
+      - ./observabilidade/prometheus:/etc/prometheus:ro
+      - prometheus:/prometheus
+    mem_limit: 192m
+    logging: *logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    cpus: "0.5"
+    networks:
+      observabilidade: {}
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: https://${DOMINIO:?falta no .env}/painel/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN: "true"
+      # Medido em 21/10/2026: ~210 MB só do Grafana (192 MB = morto por falta de memória). Alertas e plugins
+      # pré-instalados desligados: o painel não usa nenhum
+      GF_UNIFIED_ALERTING_ENABLED: "false"
+      GF_ALERTING_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # Só Prometheus e Jaeger: cada fonte embutida é um processo próprio (13 rodando, medido em 21/10/2026)
+      GF_PLUGINS_DISABLE_PLUGINS: loki,mssql,mysql,opentsdb,grafana-pyroscope-datasource,tempo,zipkin,stackdriver,elasticsearch,influxdb,grafana-postgresql-datasource
+      GOMEMLIMIT: 220MiB
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # O admin existe (o Grafana cria), mas não entra por lugar nenhum; a senha é longa e só fica no .env da VM
+      GF_SECURITY_ADMIN_PASSWORD: ${FOIL_GRAFANA_SENHA:?falta no .env}
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      # O CSP do Grafana (com nonce): o do resto do site não deixaria o Grafana rodar
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_LOG_LEVEL: warn
+      # Resposta de fonte de dados com no máximo 5 MB (uma busca de 2.000 traces passaria de 20 MB)
+      GF_DATAPROXY_RESPONSE_LIMIT: "5000000"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/foil.json
+    volumes:
+      - ./observabilidade/grafana/fontes:/etc/grafana/provisioning/datasources:ro
+      - ./observabilidade/grafana/paineis:/etc/grafana/provisioning/dashboards:ro
+    mem_limit: 320m
+    logging: *logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 60s
+      retries: 3
+    depends_on:
+      - prometheus
+      - jaeger
+    cpus: "0.5"
+    # Fora da rede "foil": o Redpanda não tem senha, e o Grafana é público
+    networks:
+      observabilidade: {}
+      beacon:
+        aliases: [foil-grafana]
+
 volumes:
   redpanda:
+  prometheus:
 
 networks:
   foil:
     name: foil_interna
+  observabilidade:
+    name: foil_observabilidade
   beacon:
     external: true
     name: beacon_interna

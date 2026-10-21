@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,8 +25,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.redpanda.RedpandaContainer;
+import org.testcontainers.utility.MountableFile;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -49,6 +53,15 @@ class CompraPeloFielTest {
 
 	static RedpandaContainer redpanda = new RedpandaContainer("redpandadata/redpanda:v26.2.5");
 
+	/** Fase 9: o mesmo Jaeger da VM (versão e configuração), recebendo os traces das três JVMs. */
+	@SuppressWarnings("resource")
+	static GenericContainer<?> jaeger = new GenericContainer<>("jaegertracing/jaeger:2.20.0")
+		.withCopyFileToContainer(MountableFile.forHostPath("../deploy/observabilidade/jaeger/jaeger.yaml"),
+				"/etc/jaeger/jaeger.yaml")
+		.withCommand("--config", "/etc/jaeger/jaeger.yaml")
+		.withExposedPorts(4318, 16686, 13133)
+		.waitingFor(Wait.forHttp("/status").forPort(13133));
+
 	static Servico fiel;
 
 	static Servico estoque;
@@ -71,6 +84,7 @@ class CompraPeloFielTest {
 		assumeTrue(!jar.isBlank(), "sem -Dfiel.jar: pulando a compra pelo Fiel de verdade");
 		postgres.start();
 		redpanda.start();
+		jaeger.start();
 		criarBancos();
 		fiel = new Servico("fiel", Path.of(jar), "FIEL_PORTA", Map.of("FIEL_BANCO_URL", url("fiel"),
 				"FIEL_BANCO_USUARIO", postgres.getUsername(), "FIEL_BANCO_SENHA", postgres.getPassword(),
@@ -121,6 +135,7 @@ class CompraPeloFielTest {
 		}
 		redpanda.stop();
 		postgres.stop();
+		jaeger.stop();
 	}
 
 	static String url(String banco) {
@@ -129,7 +144,9 @@ class CompraPeloFielTest {
 
 	static Servico servico(String nome, Map<String, String> ambiente) throws Exception {
 		ambiente.putAll(Map.of("FOIL_BANCO_URL", url("foil_" + nome), "FOIL_BANCO_USUARIO", postgres.getUsername(),
-				"FOIL_BANCO_SENHA", postgres.getPassword(), "FOIL_KAFKA", redpanda.getBootstrapServers()));
+				"FOIL_BANCO_SENHA", postgres.getPassword(), "FOIL_KAFKA", redpanda.getBootstrapServers(),
+				"MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT",
+				"http://" + jaeger.getHost() + ":" + jaeger.getMappedPort(4318) + "/v1/traces"));
 		return new Servico(nome, ambiente, List.of("--foil.pedidos.prazo-do-pagamento=" + PRAZO.toSeconds() + "s",
 				"--foil.consumo.espera-maxima-ms=2000", "--foil.fiel.conferir-a-cada=5s"));
 	}
@@ -255,10 +272,36 @@ class CompraPeloFielTest {
 		var antes = visitante.saldo();
 		assertThat(visitante.pagar(esperando.path("qr").asString()).statusCode()).isEqualTo(201);
 
-		esperarPedido(id, p -> p.path("estado").asString().equals("CONFIRMADO"), Duration.ofSeconds(15),
-				"CONFIRMADO");
+		var confirmado = esperarPedido(id, p -> p.path("estado").asString().equals("CONFIRMADO"),
+				Duration.ofSeconds(15), "CONFIRMADO");
 		assertThat(visitante.saldo()).isEqualTo(antes - 1990);
 		assertThat(disponivel(edicao)).isZero();
+
+		// Fase 9: a saga inteira num trace só, do POST na loja à aprovação que veio pelo aviso do Fiel, passando pelos
+		// três serviços e pela conversa com o Fiel
+		var traceId = confirmado.path("traceId").asString();
+		esperar(() -> {
+			var spans = spansDoTrace(traceId);
+			return spans.containsAll(List.of("pedidos:http post /pedidos", "estoque:estoque.comandos process",
+					"pagamentos:pagamentos.comandos process", "pagamentos:Fiel: criar cobrança"))
+					&& spans.stream().filter("pedidos:pagamentos.eventos process"::equals).count() >= 2;
+		}, Duration.ofSeconds(30), "o trace da saga inteira no Jaeger");
+	}
+
+	/** "serviço:operação" de cada span do trace, pela API de consulta do Jaeger (a mesma que o Grafana usa). */
+	static List<String> spansDoTrace(String traceId) throws Exception {
+		var resposta = HTTP.send(HttpRequest.newBuilder(URI.create("http://" + jaeger.getHost() + ":"
+				+ jaeger.getMappedPort(16686) + "/api/traces/" + traceId)).build(), HttpResponse.BodyHandlers.ofString());
+		if (resposta.statusCode() != 200) {
+			return List.of();
+		}
+		var trace = JSON.readTree(resposta.body()).path("data").get(0);
+		var spans = new ArrayList<String>();
+		for (var span : trace.path("spans")) {
+			var servico = trace.path("processes").path(span.path("processID").asString()).path("serviceName").asString();
+			spans.add(servico + ":" + span.path("operationName").asString());
+		}
+		return spans;
 	}
 
 	@Test

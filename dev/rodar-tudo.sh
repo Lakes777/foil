@@ -6,7 +6,7 @@
 #   dev/rodar-tudo.sh parar    derruba os processos (o compose continua; docker compose down para parar)
 #
 # Endereços: loja http://localhost:5195 · Fiel http://localhost:5190 · console do Redpanda http://localhost:8090
-# Logs em dev/logs/. Precisa de Java 21, Node e Docker.
+# Logs em dev/logs/. Precisa de Java 25, Node e Docker.
 set -euo pipefail
 
 RAIZ="$(cd "$(dirname "$0")/.." && pwd)"

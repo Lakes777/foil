@@ -39,8 +39,9 @@ O que o projeto precisa provar (para o recrutador e na entrevista):
   dentro de um `synchronized` prende o carregador; na VM a JVM via 1 processador = 1 carregador, e o `/saude`
   (synchronized esperando as duas conferências em paralelo) travava para sempre. Corrigido com `ReentrantLock` no
   `/saude` e no painel, `Carregadores.garantir()` no `main` (no mínimo 4, para um `synchronized` de biblioteca não parar
-  o serviço) e o `ponta-a-ponta` subindo as JVMs com `-XX:ActiveProcessorCount=1` (sem a correção, trava). Saída
-  definitiva: Java 25 (JEP 491, o synchronized deixa de prender), a decidir.
+  o serviço) e o `ponta-a-ponta` subindo as JVMs com `-XX:ActiveProcessorCount=1` (sem a correção, trava no Java 21). Saída
+  definitiva FEITA 21/10/2026: Java 25 no Foil e no Fiel (JEP 491, o synchronized deixa de prender). A trava, os 4
+  carregadores e o teste com 1 processador ficam como segunda proteção (um synchronized ainda prende em frame nativo).
 - **Desenvolvimento no WSL com 3,8 GB:** suítes rodam um serviço por vez; vitest com `--maxWorkers=2`;
   Gradle/Maven sem daemon persistente quando possível.
 - **Rede compartilhada `beacon_interna`:** todo serviço com apelido único `foil-*` (nunca depender do nome
@@ -52,7 +53,7 @@ O que o projeto precisa provar (para o recrutador e na entrevista):
 
 | Parte | Escolha |
 |---|---|
-| Linguagem | Java 21, threads virtuais (P3, P21) |
+| Linguagem | Java 25, threads virtuais (P3, P21; era Java 21 até 21/10/2026) |
 | Framework | Spring Boot + Spring Kafka (P3) |
 | Mensageria | Redpanda (protocolo do Kafka; o código usa o cliente Kafka padrão) (P2) |
 | Banco | PostgreSQL 17 (o do Beacon), Flyway, SQL à mão onde a regra importa |

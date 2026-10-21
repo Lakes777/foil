@@ -6,7 +6,7 @@
 # iguais em qualquer processador. Só as etapas finais são ARM.
 
 # 1. Os três serviços de uma vez (dividem contratos e comum). O jar que roda sozinho é o *-exec.jar
-FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS compilacao
+FROM --platform=$BUILDPLATFORM eclipse-temurin:25-jdk AS compilacao
 WORKDIR /fonte
 COPY mvnw pom.xml ./
 COPY .mvn .mvn
@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.m2 \
 	&& for s in pedidos estoque pagamentos; do cp $s/target/$s-*-exec.jar /jars/$s.jar; done
 
 # 2. Um serviço (SERVICO = pedidos, estoque ou pagamentos)
-FROM eclipse-temurin:21-jre-alpine AS servico
+FROM eclipse-temurin:25-jre-alpine AS servico
 ARG SERVICO
 ARG COMMIT=desconhecido
 LABEL org.opencontainers.image.revision=$COMMIT

@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 25
           cache: maven
       # O ponta-a-ponta compra pelo Fiel de verdade (CompraPeloFielTest): o jar vem do main do repositório dele.
       # Uma mudança no Fiel que quebre o contrato com o Foil aparece aqui

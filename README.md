@@ -263,6 +263,8 @@ Na mesma VM ARM da Oracle (1 núcleo) que o Fiel e os outros projetos, atrás do
 - **Um processador muda as threads virtuais:** a primeira publicação travou o `/saude` (no Java 21, uma thread virtual
   esperando dentro de um `synchronized` prende o carregador, e com um núcleo só há um). Corrigido com trava no lugar do
   `synchronized`, pelo menos 4 carregadores por serviço, e o teste de ponta a ponta subindo as JVMs com um processador.
+  Depois o projeto passou para o Java 25, em que o `synchronized` deixa de prender o carregador (JEP 491); as
+  correções ficaram como segunda proteção.
 - **Medido na VM:** um lançamento de 200 robôs vendeu exatamente 10 em 20 s, cada serviço ficou em ~190 MB, e os outros
   sites da VM seguiram respondendo em ~60 ms durante o lançamento.
 - **Limpeza às 4h10:** saída publicada, ids de eventos e respostas a comandos repetidos saem em 4 dias; vendas,
@@ -272,12 +274,12 @@ Na mesma VM ARM da Oracle (1 núcleo) que o Fiel e os outros projetos, atrás do
 
 ## Tecnologia
 
-Java 21 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · JUnit 5 ·
+Java 25 (threads virtuais) · Spring Boot 4 · Spring Kafka · Redpanda · PostgreSQL 17 · Flyway · JUnit 5 ·
 Testcontainers · React 19 · TypeScript · Vite · Vitest · GitHub Actions
 
 ## Rodar
 
-Precisa de Java 21, Node e Docker.
+Precisa de Java 25, Node e Docker.
 
 ```bash
 dev/rodar-tudo.sh                  # tudo no PC: compose, o Fiel (repositório vizinho ../fiel), os 3 serviços e as telas

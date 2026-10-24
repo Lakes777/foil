@@ -57,7 +57,7 @@ describe('Vitrine', () => {
       screen.getByRole('button', { name: 'Simular lançamento' }),
     );
     await userEvent.click(
-      screen.getByRole('button', { name: 'Ver os eventos ao vivo' }),
+      screen.getByRole('button', { name: 'Ver por dentro' }),
     );
 
     expect(abrir.mock.calls).toEqual([['lancamento'], ['por-dentro']]);

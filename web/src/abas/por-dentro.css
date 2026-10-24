@@ -6,12 +6,12 @@
   background: var(--veludo);
   border-radius: 0 12px 12px 0;
   color: var(--suave);
-  font-size: 14px;
+  font-size: 0.875rem;
   max-width: 82ch;
 }
 
 .arquitetura b {
-  font: 500 13px var(--mono);
+  font: 500 0.8125rem var(--mono);
   color: var(--texto);
 }
 
@@ -43,13 +43,13 @@
 }
 
 .eventos-cab h2 {
-  font: 500 15px var(--corpo);
+  font: 500 0.9375rem var(--corpo);
   margin: 0 0 4px;
 }
 
 .eventos-cab .sub {
   color: var(--apagado);
-  font: 400 12.5px var(--mono);
+  font: 400 0.7812rem var(--mono);
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -60,7 +60,7 @@
 
 .eventos-cab .btn {
   padding: 7px 14px;
-  font-size: 13.5px;
+  font-size: 0.8438rem;
   flex: none;
 }
 
@@ -113,7 +113,7 @@
 .saga b {
   font-weight: 500;
   display: block;
-  font-size: 14.5px;
+  font-size: 0.9062rem;
   transition: color 0.6s var(--suave-mov);
 }
 
@@ -131,12 +131,12 @@
 
 .saga small {
   color: var(--apagado);
-  font-size: 13px;
+  font-size: 0.8125rem;
   display: block;
 }
 
 .saga time {
-  font: 400 12px var(--mono);
+  font: 400 0.75rem var(--mono);
   color: var(--apagado);
   white-space: nowrap;
 }
@@ -145,7 +145,7 @@
   margin: 18px 0 0;
   display: grid;
   gap: 2px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .saga-trace a,
@@ -155,20 +155,20 @@
 
 .saga-trace small {
   color: var(--apagado);
-  font-size: 12.5px;
+  font-size: 0.7812rem;
 }
 
 .saga-vazia,
 .fluxo-vazio {
   color: var(--apagado);
-  font-size: 14px;
+  font-size: 0.875rem;
   margin: 0;
 }
 
 /* todos os eventos */
 .fluxo {
   display: grid;
-  font-size: 13.5px;
+  font-size: 0.8438rem;
   max-height: 640px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -188,7 +188,7 @@
 }
 
 .fluxo time {
-  font: 400 12px var(--mono);
+  font: 400 0.75rem var(--mono);
   color: var(--apagado);
 }
 
@@ -200,7 +200,7 @@
 }
 
 .fluxo .ev code {
-  font: 400 12.5px var(--mono);
+  font: 400 0.7812rem var(--mono);
   color: var(--suave);
 }
 

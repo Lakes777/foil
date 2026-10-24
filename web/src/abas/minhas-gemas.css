@@ -56,14 +56,14 @@
 }
 
 .colecao-lista b {
-  font: italic 500 17px/1.1 var(--display);
+  font: italic 500 1.0625rem/1.1 var(--display);
   display: block;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .colecao-lista small {
   color: var(--apagado);
-  font-size: 12.5px;
+  font-size: 0.7812rem;
 }
 
 @media (max-width: 1000px) {
@@ -196,13 +196,13 @@
 
 .verso-cab {
   text-align: center;
-  font: italic 500 22px/1.1 var(--display);
+  font: italic 500 1.375rem/1.1 var(--display);
   padding-top: 10px;
 }
 
 .verso-cab small {
   display: block;
-  font: 400 11px var(--mono);
+  font: 400 0.75rem var(--mono);
   color: var(--apagado);
   margin-top: 6px;
 }
@@ -212,7 +212,7 @@
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 6px 12px;
-  font-size: 12.5px;
+  font-size: 0.7812rem;
   align-content: center;
   padding-inline: 8px;
 }
@@ -224,7 +224,7 @@
 .face.verso dd {
   margin: 0;
   text-align: right;
-  font: 400 12px var(--mono);
+  font: 400 0.75rem var(--mono);
 }
 
 .verso-selo {
@@ -251,7 +251,7 @@
 
 .tinta-uv span {
   transform: rotate(-28deg);
-  font: 600 13px/1.5 var(--mono);
+  font: 600 0.8125rem/1.5 var(--mono);
   letter-spacing: 0.3em;
   color: var(--tinta-uv);
   text-shadow:
@@ -275,7 +275,7 @@
 
 .inspetor-comandos .btn {
   padding: 9px 16px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .inspetor-comandos .btn[aria-pressed='true'] {
@@ -294,7 +294,7 @@
   grid-template-columns: 70px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--suave);
 }
 
@@ -304,7 +304,7 @@
 }
 
 .inspetor-dica {
-  font-size: 12.5px;
+  font-size: 0.7812rem;
   color: var(--apagado);
   margin: 0;
   text-align: center;
@@ -323,16 +323,16 @@
 
 .ficha-gema-nome {
   margin: 0;
-  font: italic 500 26px/1.1 var(--display);
-  overflow-wrap: anywhere;
+  font: italic 500 1.625rem/1.1 var(--display);
+  overflow-wrap: break-word;
 }
 
 .ficha-gema-unidade {
-  font: 400 46px/1 var(--display);
+  font: 400 2.875rem/1 var(--display);
 }
 
 .ficha-gema-unidade small {
-  font: 400 14px var(--corpo);
+  font: 400 0.875rem var(--corpo);
   color: var(--apagado);
   margin-left: 6px;
 }
@@ -342,7 +342,7 @@
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 8px 14px;
-  font-size: 13.5px;
+  font-size: 0.8438rem;
 }
 
 .ficha-gema dt {
@@ -355,7 +355,7 @@
 }
 
 .ficha-gema-raro {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--suave);
   border-top: 1px solid var(--fio);
   padding-top: 14px;
@@ -371,7 +371,7 @@
 
 .colecao-outras-titulo,
 .colecao-outras summary {
-  font: 500 14px var(--corpo);
+  font: 500 0.875rem var(--corpo);
   color: var(--suave);
   margin: 0 0 12px;
 }
@@ -401,12 +401,12 @@
   gap: 8px 14px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--fio);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .colecao-outras li a {
   color: var(--lilas);
-  font-size: 13.5px;
+  font-size: 0.8438rem;
 }
 
 .colecao-outras-resumo {
@@ -424,14 +424,14 @@
 }
 
 .colecao-outras-resumo b {
-  font: italic 500 16px/1.1 var(--display);
+  font: italic 500 1rem/1.1 var(--display);
   display: block;
 }
 
 .colecao-outras-resumo small,
 .colecao-outras-motivo {
   color: var(--apagado);
-  font-size: 12.5px;
+  font-size: 0.7812rem;
 }
 
 .colecao-outras.discretas {
@@ -482,7 +482,7 @@
 
 .vazia-titulo {
   margin: 0;
-  font: italic 500 28px/1.1 var(--display);
+  font: italic 500 1.75rem/1.1 var(--display);
   color: var(--texto);
 }
 

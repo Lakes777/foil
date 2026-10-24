@@ -55,7 +55,7 @@ body {
   margin: 0;
   background: var(--noite);
   color: var(--texto);
-  font: 400 15.5px/1.6 var(--corpo);
+  font: 400 0.9688rem/1.6 var(--corpo);
   -webkit-font-smoothing: antialiased;
   transition:
     background-color 1s var(--suave-mov),
@@ -135,7 +135,7 @@ body::before {
 }
 
 .marca {
-  font: italic 500 30px/1 var(--display);
+  font: italic 500 1.875rem/1 var(--display);
   letter-spacing: -0.01em;
   text-decoration: none;
   display: flex;
@@ -160,7 +160,7 @@ body::before {
   border: 0;
   color: var(--suave);
   padding: 21px 2px 19px;
-  font-size: 14.5px;
+  font-size: 0.9062rem;
   position: relative;
   white-space: nowrap;
   transition: color 0.5s var(--suave-mov);
@@ -197,7 +197,7 @@ body::before {
   border: 1px solid var(--fio-claro);
   border-radius: 999px;
   padding: 5px 12px 5px 9px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   transition:
     color 0.6s var(--suave-mov),
     border-color 0.6s var(--suave-mov),
@@ -211,6 +211,14 @@ body::before {
 
 .luz-negra:hover {
   color: var(--texto);
+}
+
+/* dedo precisa de 44 px; no mouse fica o tamanho de antes */
+@media (pointer: coarse) {
+  .luz-negra {
+    min-height: 44px;
+    padding-inline: 14px 16px;
+  }
 }
 
 .luz-negra[aria-pressed='true'] {
@@ -236,19 +244,18 @@ body::before {
   }
 }
 
+/* troca de aba é frequente: só um esmaecer curto, sem deslocar */
 .aba {
-  animation: chegar 0.6s var(--suave-mov);
+  animation: chegar 0.25s ease-out;
   min-height: 60vh;
 }
 
 @keyframes chegar {
   from {
     opacity: 0;
-    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: none;
   }
 }
 
@@ -258,7 +265,7 @@ body::before {
 }
 
 .titulo {
-  font: 400 clamp(30px, 4vw, 44px)/1.05 var(--display);
+  font: 400 clamp(1.875rem, 4vw, 2.75rem)/1.05 var(--display);
   margin: 0;
   letter-spacing: -0.015em;
 }
@@ -277,7 +284,7 @@ body::before {
   border-radius: 999px;
   padding: 12px 22px;
   font-weight: 500;
-  font-size: 15px;
+  font-size: 0.9375rem;
   border: 1px solid transparent;
   text-decoration: none;
   display: inline-flex;
@@ -316,6 +323,18 @@ body::before {
   opacity: 0.45;
 }
 
+/* aperto: no celular não existe hover, então o toque precisa de resposta própria (rápida na ida) */
+button:active:not(:disabled) {
+  opacity: 0.72;
+  transition-duration: 0.08s;
+}
+
+.btn:active:not(:disabled) {
+  opacity: 1;
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
+}
+
 .cartao {
   background: var(--veludo);
   border: 1px solid var(--fio);
@@ -325,7 +344,7 @@ body::before {
 }
 
 .estado {
-  font-size: 12px;
+  font-size: 0.75rem;
   padding: 3px 10px;
   border-radius: 999px;
   white-space: nowrap;
@@ -347,7 +366,7 @@ body::before {
 
 .aviso {
   color: var(--ruim);
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 /* gemas: a camada da luz negra troca com a de dia */
@@ -397,7 +416,7 @@ body::before {
   border-top: 1px solid var(--fio);
   padding-block: 32px 48px;
   color: var(--apagado);
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .rodape-miolo {
@@ -414,5 +433,29 @@ body::before {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* "aumentar contraste" do sistema: textos secundários e fios mais claros, com ou sem luz negra */
+@media (prefers-contrast: more) {
+  :root {
+    --suave: #c4c6cc;
+    --apagado: #b4b6bd;
+    --fio: #4a4d57;
+    --fio-claro: #6a6e7a;
+  }
+  :root[data-uv] {
+    --suave: #c9bfe8;
+    --apagado: #b8addb;
+    --fio: #4a3f6e;
+    --fio-claro: #6a5d96;
+  }
+}
+
+/* "reduzir transparência": a barra do topo fica sólida, sem desfoque */
+@media (prefers-reduced-transparency: reduce) {
+  .barra {
+    background: var(--noite);
+    backdrop-filter: none;
   }
 }

@@ -17,7 +17,7 @@
 .lanc-msg {
   margin: 0;
   min-height: 1.5em;
-  font-size: 13.5px;
+  font-size: 0.8438rem;
   color: var(--suave);
   text-align: right;
 }
@@ -37,7 +37,7 @@
   align-items: center;
   gap: 8px;
   margin: 0 0 22px;
-  font: 400 12px var(--mono);
+  font: 400 0.75rem var(--mono);
   color: var(--apagado);
 }
 
@@ -77,7 +77,7 @@
 }
 
 .lanc-vazio h2 {
-  font: italic 500 26px/1.1 var(--display);
+  font: italic 500 1.625rem/1.1 var(--display);
   margin: 0 0 6px;
 }
 
@@ -133,7 +133,7 @@
   margin: 0 0 26px;
   padding: 0;
   list-style: none;
-  font-size: 12.5px;
+  font-size: 0.7812rem;
 }
 
 .etapas li {
@@ -163,13 +163,13 @@
 }
 
 .lanc-nome {
-  font: italic 500 30px/1.1 var(--display);
+  font: italic 500 1.875rem/1.1 var(--display);
   margin: 0 0 6px;
 }
 
 .lanc-sub {
   color: var(--suave);
-  font-size: 14px;
+  font-size: 0.875rem;
   margin: 0 0 8px;
 }
 
@@ -243,11 +243,11 @@
 
 .contas dd {
   margin: 0;
-  font: 400 32px/1 var(--display);
+  font: 400 2rem/1 var(--display);
 }
 
 .contas dt {
-  font-size: 12.5px;
+  font-size: 0.7812rem;
   color: var(--apagado);
   margin-top: 6px;
 }
@@ -263,7 +263,7 @@
 .robos {
   display: grid;
   gap: 8px;
-  font: 400 12.5px var(--mono);
+  font: 400 0.7812rem var(--mono);
   color: var(--apagado);
 }
 
@@ -285,7 +285,7 @@
 
 .fila h3 {
   margin: 0 0 16px;
-  font: 500 14px var(--corpo);
+  font: 500 0.875rem var(--corpo);
   color: var(--suave);
 }
 
@@ -299,9 +299,10 @@
 
 .fila li {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 14px;
+  gap: 2px 10px;
+  font-size: 0.875rem;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--fio);
   min-width: 0;
@@ -309,14 +310,19 @@
 
 .fila li span:first-child {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .fila li span:last-child {
   color: var(--apagado);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 0.7812rem;
   text-align: right;
+}
+
+/* quando a linha quebra, os números descem e continuam à direita */
+.fila li span:last-child:not(:first-child) {
+  margin-left: auto;
 }
 
 .fila li.voce span:first-child {
@@ -328,7 +334,7 @@
 }
 
 .fila .regra {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--apagado);
   margin: -8px 0 28px;
 }

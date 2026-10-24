@@ -83,14 +83,10 @@ export function Vitrine({ abrir }: { abrir: (aba: Aba) => void }) {
                 type="button"
                 onClick={() => abrir('por-dentro')}
               >
-                Ver os eventos ao vivo
+                Ver por dentro
               </button>
             </div>
             <dl className="abertura-fatos">
-              <div>
-                <dt>unidades por edição</dt>
-                <dd className="num">10</dd>
-              </div>
               <div>
                 <dt>compradores-robô</dt>
                 <dd className="num">200</dd>

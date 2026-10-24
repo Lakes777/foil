@@ -23,7 +23,7 @@
 .mohs-legenda {
   display: flex;
   justify-content: space-between;
-  font: 400 11px var(--mono);
+  font: 400 0.75rem var(--mono);
   color: var(--apagado);
 }
 

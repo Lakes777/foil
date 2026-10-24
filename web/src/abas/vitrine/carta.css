@@ -3,21 +3,25 @@
   display: flex;
   justify-content: space-between;
   align-items: start;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 
 .carta-nome {
-  font: italic 500 27px/1 var(--display);
+  font: italic 500 1.6875rem/1 var(--display);
   margin: 0;
+  /* 5em: no tamanho normal o nome cabe ao lado da série; com fonte grande não cabe e a série desce (sem partir o nome) */
+  flex: 1 1 5em;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .carta-serie {
-  font: 400 11.5px/1.5 var(--mono);
+  font: 400 0.75rem/1.5 var(--mono);
   color: var(--suave);
   text-align: right;
   flex: none;
+  margin-left: auto;
 }
 
 .carta-janela {
@@ -43,7 +47,7 @@
 }
 
 .carta-texto {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: #c9c8c3;
   margin: 0;
   line-height: 1.45;
